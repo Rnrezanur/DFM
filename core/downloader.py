@@ -431,7 +431,8 @@ class DownloadTask:
                     pass
 
             self.set_status("completed")
-            from core.utils import trim_memory
+            from core.utils import trim_memory, apply_mark_of_the_web
+            apply_mark_of_the_web(self.save_path, self.url)
             trim_memory()
             if self.on_complete:
                 self.on_complete(self)

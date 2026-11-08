@@ -211,6 +211,36 @@ class DownloadProgressDialog(QDialog):
     def _open_file(self):
         item = db.get_download(self.task_id)
         if item and os.path.exists(item["save_path"]):
+            from core.utils import is_dangerous_executable, check_double_extension_spoof
+            file_path = item["save_path"]
+            filename = os.path.basename(file_path)
+
+            if check_double_extension_spoof(filename):
+                from PyQt6.QtWidgets import QMessageBox
+                reply = QMessageBox.critical(
+                    self,
+                    "⚠️ High-Risk File Detected",
+                    f"The file '{filename}' has a deceptive double extension and is an executable!\n\n"
+                    f"Are you completely sure you want to run it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
+            elif is_dangerous_executable(file_path):
+                from PyQt6.QtWidgets import QMessageBox
+                reply = QMessageBox.warning(
+                    self,
+                    "Security Notice — Executable File",
+                    f"'{filename}' is an executable application downloaded from the internet.\n\n"
+                    f"Do you wish to launch it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
             open_file_or_folder(item["save_path"])
 
     def _open_folder(self):

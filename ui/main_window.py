@@ -24,7 +24,8 @@ from core.clipboard_listener import ClipboardListener
 from core.utils import (
     format_bytes, format_speed, format_eta,
     get_category_for_filename, open_file_or_folder,
-    trim_memory, get_process_memory_mb
+    trim_memory, get_process_memory_mb,
+    is_dangerous_executable, check_double_extension_spoof
 )
 
 from ui.dialogs.add_download_dialog import AddDownloadDialog
@@ -567,13 +568,45 @@ class MainWindow(QMainWindow):
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
+    def _safe_open_file(self, file_path: str):
+        if not file_path or not os.path.exists(file_path):
+            return
+        filename = os.path.basename(file_path)
+
+        if check_double_extension_spoof(filename):
+            reply = QMessageBox.critical(
+                self,
+                "⚠️ High-Risk File Detected",
+                f"The file '{filename}' appears to have a deceptive double extension and is actually an executable!\n\n"
+                f"Malicious software often uses this technique to disguise viruses as documents.\n\n"
+                f"Are you completely sure you want to run it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        elif is_dangerous_executable(file_path):
+            reply = QMessageBox.warning(
+                self,
+                "Security Notice — Executable File",
+                f"'{filename}' is an executable application downloaded from the internet.\n\n"
+                f"Running unverified programs can make changes to your PC. Do you wish to launch it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        open_file_or_folder(file_path)
+
     def _open_selected_file(self):
         ids = self._get_selected_task_ids()
         if not ids:
             return
         item = db.get_download(ids[0])
         if item and os.path.exists(item["save_path"]):
-            open_file_or_folder(item["save_path"])
+            self._safe_open_file(item["save_path"])
 
     def _copy_selected_url(self):
         ids = self._get_selected_task_ids()
@@ -593,7 +626,7 @@ class MainWindow(QMainWindow):
             return
 
         if item["status"] == "completed" and os.path.exists(item["save_path"]):
-            open_file_or_folder(item["save_path"])
+            self._safe_open_file(item["save_path"])
         else:
             self._open_progress_dialog(task_id)
 

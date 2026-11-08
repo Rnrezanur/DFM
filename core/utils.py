@@ -177,3 +177,45 @@ def get_process_memory_mb() -> float:
     except Exception:
         pass
     return 0.0
+
+DANGEROUS_EXTENSIONS = (
+    ".exe", ".msi", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse",
+    ".wsf", ".wsh", ".ps1", ".scr", ".com", ".pif", ".cpl", ".hta", ".iso"
+)
+
+def is_dangerous_executable(filename_or_path: str) -> bool:
+    """Detects if a file is an executable or script that can execute code."""
+    if not filename_or_path:
+        return False
+    lower = filename_or_path.lower()
+    return any(lower.endswith(ext) for ext in DANGEROUS_EXTENSIONS)
+
+def check_double_extension_spoof(filename: str) -> bool:
+    """Detects spoofed extensions designed to deceive users (e.g. invoice.pdf.exe or song.mp3.exe)."""
+    lower = filename.lower()
+    media_exts = [
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".txt", ".rtf",
+        ".zip", ".rar", ".7z", ".mp3", ".wav", ".flac", ".mp4", ".mkv", ".avi"
+    ]
+    if any(lower.endswith(ext) for ext in DANGEROUS_EXTENSIONS):
+        base, _ = os.path.splitext(lower)
+        if any(base.endswith(m_ext) for m_ext in media_exts):
+            return True
+    return False
+
+def apply_mark_of_the_web(filepath: str, source_url: str = ""):
+    """
+    Attaches the Windows Mark-of-the-Web (Zone.Identifier NTFS stream).
+    This ensures Windows Defender and SmartScreen inspect downloaded executables
+    before execution, preventing drive-by zero-day malware attacks.
+    """
+    import platform
+    if platform.system() != "Windows" or not os.path.exists(filepath):
+        return
+    try:
+        zone_path = filepath + ":Zone.Identifier"
+        with open(zone_path, "w", encoding="utf-8") as f:
+            f.write(f"[ZoneTransfer]\nZoneId=3\nHostUrl={source_url}\n")
+    except Exception:
+        pass
