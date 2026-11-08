@@ -1,7 +1,7 @@
 """
 DFM Main Application Window.
-Rich dark-themed IDM alternative with real-time multi-threaded queue management,
-category tree, segmented progress, system tray, and clipboard sniffer.
+Ultra-modern Fluent Dark interface, lightweight memory-optimized architecture,
+hardware-accelerated delegates, search filtering, and real-time RAM freeing.
 """
 
 import os
@@ -12,20 +12,25 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
     QToolBar, QStatusBar, QLabel, QPushButton, QMenu, QMessageBox,
     QApplication, QSystemTrayIcon, QHeaderView, QAbstractItemView,
-    QProgressBar, QStyledItemDelegate, QStyleOptionProgressBar, QStyle
+    QLineEdit, QFrame
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QUrl
-from PyQt6.QtGui import QIcon, QAction, QFont, QColor, QDesktopServices
+from PyQt6.QtGui import QIcon, QAction, QFont, QColor
 
 from core.database import db
 from core.download_manager import manager
 from core.browser_bridge import BrowserBridgeServer
 from core.clipboard_listener import ClipboardListener
-from core.utils import format_bytes, format_speed, format_eta, get_category_for_filename, open_file_or_folder
+from core.utils import (
+    format_bytes, format_speed, format_eta,
+    get_category_for_filename, open_file_or_folder,
+    trim_memory, get_process_memory_mb
+)
 
 from ui.dialogs.add_download_dialog import AddDownloadDialog
 from ui.dialogs.download_progress_dialog import DownloadProgressDialog
 from ui.dialogs.settings_dialog import SettingsDialog
+from ui.delegates.progress_delegate import ModernProgressDelegate, ModernStatusPillDelegate
 
 class BridgeNotifier(QObject):
     browser_download_received = pyqtSignal(str, str, bool)
@@ -35,20 +40,20 @@ class BridgeNotifier(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DFM - Download Fast Manager")
-        self.resize(1020, 640)
-        self.setMinimumSize(800, 500)
+        self.setWindowTitle("DFM — Download Fast Manager (Lightweight Pro)")
+        self.resize(1080, 680)
+        self.setMinimumSize(850, 520)
 
         self.current_category_filter = "All Downloads"
+        self.search_filter = ""
         self.progress_dialogs = {} # task_id -> DownloadProgressDialog
 
-        # Qt Event Bridge
+        # Event Bridge
         self.notifier = BridgeNotifier()
         self.notifier.browser_download_received.connect(self._handle_browser_download)
         self.notifier.clipboard_url_received.connect(self._handle_clipboard_url)
         self.notifier.manager_event.connect(self._handle_manager_event)
 
-        # Register manager listener
         manager.register_listener(self._on_manager_callback)
 
         self._setup_ui()
@@ -57,103 +62,92 @@ class MainWindow(QMainWindow):
         self._setup_bridge_server()
         self._load_downloads_table()
 
-        # Polling timer for live table updates
+        # High-efficiency update timer (updates only active download rows)
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._refresh_active_downloads)
-        self.update_timer.start(500) # Every 500ms
+        self.update_timer.start(500)
+
+        # Periodic RAM Trimming Timer (every 25 seconds)
+        self.ram_timer = QTimer(self)
+        self.ram_timer.timeout.connect(self._periodic_ram_trim)
+        self.ram_timer.start(25000)
 
     def _setup_ui(self):
-        # Top Toolbar
-        toolbar = QToolBar("Main Controls")
-        toolbar.setMovable(False)
-        toolbar.setIconSize(toolbar.iconSize())
-        toolbar.setStyleSheet("""
-            QToolBar {
-                background: #18191c;
-                border-bottom: 1px solid #2b2d31;
-                spacing: 6px;
-                padding: 4px 8px;
-            }
-            QToolButton {
-                color: #e3e5e8;
-                font-weight: 500;
-                padding: 6px 10px;
-                border-radius: 4px;
-            }
-            QToolButton:hover {
-                background: #2b2d31;
+        central_widget = QWidget()
+        root_layout = QVBoxLayout(central_widget)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # 1. Top Modern Header Bar
+        top_header = QFrame()
+        top_header.setStyleSheet("""
+            QFrame {
+                background: #0f111a;
+                border-bottom: 1px solid #1c2132;
+                padding: 6px 12px;
             }
         """)
-        self.addToolBar(toolbar)
+        top_layout = QHBoxLayout(top_header)
+        top_layout.setContentsMargins(12, 6, 12, 6)
+        top_layout.setSpacing(12)
 
-        self.act_add = QAction("➕ Add URL", self)
-        self.act_add.setToolTip("Add new download URL")
-        self.act_add.triggered.connect(self.show_add_dialog)
-        toolbar.addAction(self.act_add)
+        # Brand Title
+        brand_lbl = QLabel("⚡ DFM")
+        brand_lbl.setStyleSheet("font-size: 16px; font-weight: 800; color: #3b82f6;")
+        badge_lbl = QLabel("PRO LIGHT")
+        badge_lbl.setStyleSheet("""
+            background: #1e3a8a;
+            color: #93c5fd;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+        """)
+        top_layout.addWidget(brand_lbl)
+        top_layout.addWidget(badge_lbl)
 
-        toolbar.addSeparator()
+        # Primary Action Button
+        self.btn_add = QPushButton("＋ Add Download")
+        self.btn_add.setObjectName("primaryButton")
+        self.btn_add.clicked.connect(self.show_add_dialog)
+        top_layout.addWidget(self.btn_add)
 
-        self.act_resume = QAction("▶ Resume", self)
-        self.act_resume.setToolTip("Resume selected download")
-        self.act_resume.triggered.connect(self._resume_selected)
-        toolbar.addAction(self.act_resume)
+        # Quick Control Buttons
+        self.btn_resume = QPushButton("▶ Resume")
+        self.btn_resume.clicked.connect(self._resume_selected)
+        self.btn_pause = QPushButton("⏸ Pause")
+        self.btn_pause.clicked.connect(self._pause_selected)
+        self.btn_stop_all = QPushButton("⏹ Stop All")
+        self.btn_stop_all.clicked.connect(manager.stop_all)
+        self.btn_delete = QPushButton("🗑 Delete")
+        self.btn_delete.clicked.connect(self._delete_selected)
+        self.btn_folder = QPushButton("📁 Folder")
+        self.btn_folder.clicked.connect(self._open_selected_folder)
+        self.btn_settings = QPushButton("⚙ Settings")
+        self.btn_settings.clicked.connect(self.show_settings_dialog)
 
-        self.act_pause = QAction("⏸ Pause", self)
-        self.act_pause.setToolTip("Pause selected download")
-        self.act_pause.triggered.connect(self._pause_selected)
-        toolbar.addAction(self.act_pause)
+        for btn in [self.btn_resume, self.btn_pause, self.btn_stop_all, self.btn_delete, self.btn_folder, self.btn_settings]:
+            top_layout.addWidget(btn)
 
-        self.act_stop_all = QAction("⏹ Stop All", self)
-        self.act_stop_all.setToolTip("Pause all active downloads")
-        self.act_stop_all.triggered.connect(manager.stop_all)
-        toolbar.addAction(self.act_stop_all)
+        top_layout.addStretch()
 
-        toolbar.addSeparator()
+        # Search Bar
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("🔍 Quick search...")
+        self.search_edit.setFixedWidth(190)
+        self.search_edit.textChanged.connect(self._on_search_changed)
+        top_layout.addWidget(self.search_edit)
 
-        self.act_delete = QAction("🗑 Delete", self)
-        self.act_delete.setToolTip("Delete selected download")
-        self.act_delete.triggered.connect(self._delete_selected)
-        toolbar.addAction(self.act_delete)
+        root_layout.addWidget(top_header)
 
-        self.act_open_folder = QAction("📁 Open Folder", self)
-        self.act_open_folder.setToolTip("Open containing folder")
-        self.act_open_folder.triggered.connect(self._open_selected_folder)
-        toolbar.addAction(self.act_open_folder)
-
-        toolbar.addSeparator()
-
-        self.act_settings = QAction("⚙ Settings", self)
-        self.act_settings.setToolTip("Configure DFM")
-        self.act_settings.triggered.connect(self.show_settings_dialog)
-        toolbar.addAction(self.act_settings)
-
-        # Central Splitter
+        # 2. Main Central Splitter
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_splitter.setHandleWidth(2)
+        main_splitter.setHandleWidth(1)
 
-        # Left Sidebar (Categories)
+        # Left Sidebar (Category Navigation)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setFixedWidth(200)
-        self.tree.setStyleSheet("""
-            QTreeWidget {
-                background: #18191c;
-                border: none;
-                border-right: 1px solid #2b2d31;
-                color: #dcddde;
-                font-size: 13px;
-                padding-top: 8px;
-            }
-            QTreeWidget::item {
-                padding: 6px 10px;
-                border-radius: 4px;
-            }
-            QTreeWidget::item:selected {
-                background-color: #35373c;
-                color: #ffffff;
-                font-weight: bold;
-            }
-        """)
+        self.tree.setFixedWidth(210)
         self._populate_category_tree()
         self.tree.itemClicked.connect(self._on_category_clicked)
         main_splitter.addWidget(self.tree)
@@ -162,44 +156,30 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
 
         self.table = QTableWidget()
         self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels([
-            "File Name", "Size", "Progress", "Status", "Speed", "Time Left", "Added"
+            "FILE NAME", "SIZE", "PROGRESS", "STATUS", "SPEED", "TIME LEFT", "ADDED"
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #1e1f22;
-                alternate-background-color: #232428;
-                border: none;
-                color: #e3e5e8;
-                gridline-color: #2b2d31;
-            }
-            QHeaderView::section {
-                background-color: #18191c;
-                color: #949ba4;
-                padding: 6px;
-                border: none;
-                border-bottom: 1px solid #2b2d31;
-                font-weight: bold;
-            }
-            QTableWidget::item:selected {
-                background-color: #35373c;
-                color: #ffffff;
-            }
-        """)
 
-        # Configure columns
+        # Set lightweight delegates (Direct QPainter, 0 extra widgets!)
+        self.progress_delegate = ModernProgressDelegate(self.table)
+        self.status_delegate = ModernStatusPillDelegate(self.table)
+        self.table.setItemDelegateForColumn(2, self.progress_delegate)
+        self.table.setItemDelegateForColumn(3, self.status_delegate)
+
+        # Layout Column Sizing
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(2, 140)
+        self.table.setColumnWidth(2, 160)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
@@ -211,45 +191,56 @@ class MainWindow(QMainWindow):
 
         right_layout.addWidget(self.table)
         main_splitter.addWidget(right_panel)
-        self.setCentralWidget(main_splitter)
+        root_layout.addWidget(main_splitter)
 
-        # Status Bar
+        # 3. Modern Status Bar with Real-time RAM Footprint Pill
         self.status_bar = QStatusBar()
-        self.status_bar.setStyleSheet("background: #18191c; color: #949ba4; border-top: 1px solid #2b2d31;")
         self.setStatusBar(self.status_bar)
 
-        self.lbl_total_speed = QLabel("Total Speed: 0 B/s")
-        self.lbl_active_count = QLabel("Active: 0")
+        self.lbl_total_speed = QLabel("⬇ Total Speed: 0 B/s")
+        self.lbl_active_count = QLabel("⚡ Active: 0")
+        self.lbl_ram_usage = QLabel("🍃 RAM: Calculating...")
+        self.lbl_ram_usage.setStyleSheet("""
+            background: #064e3b;
+            color: #34d399;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+        """)
+
         self.lbl_bridge_status = QLabel("● Web Integration Active (Port 9666)")
-        self.lbl_bridge_status.setStyleSheet("color: #22c55e;")
+        self.lbl_bridge_status.setStyleSheet("color: #10b981; font-weight: 500;")
 
         self.status_bar.addWidget(self.lbl_total_speed)
-        self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(QLabel("   |   "))
         self.status_bar.addWidget(self.lbl_active_count)
+        self.status_bar.addWidget(QLabel("   |   "))
+        self.status_bar.addWidget(self.lbl_ram_usage)
         self.status_bar.addPermanentWidget(self.lbl_bridge_status)
+
+        self.setCentralWidget(central_widget)
 
     def _populate_category_tree(self):
         self.tree.clear()
-        
-        # Main Categories
+
         cat_root = QTreeWidgetItem(self.tree, ["Downloads"])
         cat_root.setExpanded(True)
 
-        self.item_all = QTreeWidgetItem(cat_root, ["All Downloads"])
-        self.item_downloading = QTreeWidgetItem(cat_root, ["Downloading"])
-        self.item_finished = QTreeWidgetItem(cat_root, ["Finished"])
-        self.item_unfinished = QTreeWidgetItem(cat_root, ["Unfinished"])
+        self.item_all = QTreeWidgetItem(cat_root, ["⚡ All Downloads"])
+        self.item_downloading = QTreeWidgetItem(cat_root, ["⏳ Downloading"])
+        self.item_finished = QTreeWidgetItem(cat_root, ["✓ Finished"])
+        self.item_unfinished = QTreeWidgetItem(cat_root, ["⏸ Unfinished"])
 
-        # File Types
         type_root = QTreeWidgetItem(self.tree, ["Categories"])
         type_root.setExpanded(True)
 
-        self.item_compressed = QTreeWidgetItem(type_root, ["Compressed"])
-        self.item_programs = QTreeWidgetItem(type_root, ["Programs"])
-        self.item_video = QTreeWidgetItem(type_root, ["Video"])
-        self.item_audio = QTreeWidgetItem(type_root, ["Audio"])
-        self.item_documents = QTreeWidgetItem(type_root, ["Documents"])
-        self.item_others = QTreeWidgetItem(type_root, ["Others"])
+        self.item_compressed = QTreeWidgetItem(type_root, ["📦 Compressed"])
+        self.item_programs = QTreeWidgetItem(type_root, ["💻 Programs"])
+        self.item_video = QTreeWidgetItem(type_root, ["🎬 Video & Streams"])
+        self.item_audio = QTreeWidgetItem(type_root, ["🎵 Audio"])
+        self.item_documents = QTreeWidgetItem(type_root, ["📄 Documents"])
+        self.item_others = QTreeWidgetItem(type_root, ["📁 Others"])
 
         self.tree.setCurrentItem(self.item_all)
 
@@ -269,6 +260,9 @@ class MainWindow(QMainWindow):
         act_show.triggered.connect(self.showNormal)
         act_add = tray_menu.addAction("Add Download")
         act_add.triggered.connect(self.show_add_dialog)
+        tray_menu.addSeparator()
+        act_trim = tray_menu.addAction("Clean RAM Cache")
+        act_trim.triggered.connect(self._manual_ram_trim)
         tray_menu.addSeparator()
         act_exit = tray_menu.addAction("Exit DFM")
         act_exit.triggered.connect(QApplication.instance().quit)
@@ -320,13 +314,14 @@ class MainWindow(QMainWindow):
 
     def _handle_manager_event(self, event_type: str, item_id: str, data: dict):
         if event_type == "completed":
+            trim_memory()
             item = db.get_download(item_id)
             if item and self.tray_icon.isSystemTrayAvailable():
                 self.tray_icon.showMessage(
                     "Download Completed",
                     f"{item['filename']} has finished downloading.",
                     QSystemTrayIcon.MessageIcon.Information,
-                    4000
+                    3500
                 )
         self._load_downloads_table()
 
@@ -350,10 +345,12 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         dialog.exec()
 
+    def _on_search_changed(self, text):
+        self.search_filter = text.strip().lower()
+        self._load_downloads_table()
+
     def _load_downloads_table(self):
         items = db.get_all_downloads()
-        
-        # Apply Category Filter
         filtered_items = []
         counts = {"All Downloads": len(items), "Downloading": 0, "Finished": 0, "Unfinished": 0}
 
@@ -366,22 +363,35 @@ class MainWindow(QMainWindow):
             else:
                 counts["Unfinished"] += 1
 
+            # Category filter
+            cat_match = False
             if self.current_category_filter == "All Downloads":
-                filtered_items.append(item)
+                cat_match = True
             elif self.current_category_filter == "Downloading" and status == "downloading":
-                filtered_items.append(item)
+                cat_match = True
             elif self.current_category_filter == "Finished" and status == "completed":
-                filtered_items.append(item)
+                cat_match = True
             elif self.current_category_filter == "Unfinished" and status in ["paused", "pending", "queued", "error"]:
-                filtered_items.append(item)
-            elif item["category"].lower() == self.current_category_filter.lower():
+                cat_match = True
+            elif item["category"].lower() in self.current_category_filter.lower():
+                cat_match = True
+
+            # Search filter
+            search_match = True
+            if self.search_filter:
+                search_match = (
+                    self.search_filter in item["filename"].lower() or
+                    self.search_filter in item["url"].lower()
+                )
+
+            if cat_match and search_match:
                 filtered_items.append(item)
 
         # Update category badges
-        self.item_all.setText(0, f"All Downloads ({counts['All Downloads']})")
-        self.item_downloading.setText(0, f"Downloading ({counts['Downloading']})")
-        self.item_finished.setText(0, f"Finished ({counts['Finished']})")
-        self.item_unfinished.setText(0, f"Unfinished ({counts['Unfinished']})")
+        self.item_all.setText(0, f"⚡ All Downloads ({counts['All Downloads']})")
+        self.item_downloading.setText(0, f"⏳ Downloading ({counts['Downloading']})")
+        self.item_finished.setText(0, f"✓ Finished ({counts['Finished']})")
+        self.item_unfinished.setText(0, f"⏸ Unfinished ({counts['Unfinished']})")
 
         self.table.setRowCount(len(filtered_items))
         for row, item in enumerate(filtered_items):
@@ -394,37 +404,16 @@ class MainWindow(QMainWindow):
             sz_str = format_bytes(item["total_bytes"]) if item["total_bytes"] > 0 else "--"
             self.table.setItem(row, 1, QTableWidgetItem(sz_str))
 
-            # 2: Progress Bar
+            # 2: Progress (Handled by ModernProgressDelegate!)
             pct = 0
             if item["total_bytes"] > 0:
                 pct = int((item["downloaded_bytes"] / item["total_bytes"]) * 100)
-            p_bar = QProgressBar()
-            p_bar.setRange(0, 100)
-            p_bar.setValue(min(100, pct))
-            p_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            p_bar.setStyleSheet("""
-                QProgressBar {
-                    border: 1px solid #3b82f6;
-                    border-radius: 3px;
-                    text-align: center;
-                    background-color: #2b2d31;
-                    color: white;
-                    font-size: 11px;
-                }
-                QProgressBar::chunk {
-                    background-color: #3b82f6;
-                }
-            """)
-            self.table.setCellWidget(row, 2, p_bar)
+            prog_item = QTableWidgetItem()
+            prog_item.setData(Qt.ItemDataRole.UserRole, min(100, pct))
+            self.table.setItem(row, 2, prog_item)
 
-            # 3: Status
-            status_item = QTableWidgetItem(item["status"].capitalize())
-            if item["status"] == "completed":
-                status_item.setForeground(QColor("#22c55e"))
-            elif item["status"] == "downloading":
-                status_item.setForeground(QColor("#3b82f6"))
-            elif item["status"] == "error":
-                status_item.setForeground(QColor("#ef4444"))
+            # 3: Status (Handled by ModernStatusPillDelegate!)
+            status_item = QTableWidgetItem(item["status"])
             self.table.setItem(row, 3, status_item)
 
             # 4: Speed
@@ -439,7 +428,7 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 6, QTableWidgetItem(item["added_at"]))
 
     def _refresh_active_downloads(self):
-        """Live updates table cells for downloading rows without full re-render."""
+        """High performance cell update without re-allocating rows."""
         total_speed = 0
         active_count = 0
 
@@ -456,30 +445,43 @@ class MainWindow(QMainWindow):
                 total_speed += item["speed"]
                 active_count += 1
 
-                # Update Size
                 sz_str = format_bytes(item["total_bytes"]) if item["total_bytes"] > 0 else "--"
                 self.table.item(row, 1).setText(sz_str)
 
-                # Update Progress
+                # Progress percentage update
                 pct = 0
                 if item["total_bytes"] > 0:
                     pct = int((item["downloaded_bytes"] / item["total_bytes"]) * 100)
-                p_bar = self.table.cellWidget(row, 2)
-                if isinstance(p_bar, QProgressBar):
-                    p_bar.setValue(min(100, pct))
+                self.table.item(row, 2).setData(Qt.ItemDataRole.UserRole, min(100, pct))
 
-                # Update Status
-                self.table.item(row, 3).setText(item["status"].capitalize())
-                # Update Speed
+                # Status, speed, ETA
+                self.table.item(row, 3).setText(item["status"])
                 self.table.item(row, 4).setText(format_speed(item["speed"]))
-                # Update ETA
                 self.table.item(row, 5).setText(format_eta(item["eta"]))
 
-        self.lbl_total_speed.setText(f"Total Speed: {format_speed(total_speed)}")
-        self.lbl_active_count.setText(f"Active: {active_count}")
+        self.lbl_total_speed.setText(f"⬇ Total Speed: {format_speed(total_speed)}")
+        self.lbl_active_count.setText(f"⚡ Active: {active_count}")
+
+    def _periodic_ram_trim(self):
+        """Called every 25 seconds to minimize RAM usage and update the status monitor."""
+        trim_memory()
+        mem_mb = get_process_memory_mb()
+        if mem_mb > 0:
+            self.lbl_ram_usage.setText(f"🍃 RAM: {mem_mb} MB")
+
+    def _manual_ram_trim(self):
+        trim_memory()
+        mem_mb = get_process_memory_mb()
+        self.lbl_ram_usage.setText(f"🍃 RAM: {mem_mb} MB")
+        if self.tray_icon.isSystemTrayAvailable():
+            self.tray_icon.showMessage("RAM Cleaned", f"Process working set trimmed to {mem_mb} MB.", QSystemTrayIcon.MessageIcon.Information, 2000)
 
     def _on_category_clicked(self, item, column):
-        text = item.text(0).split(" (")[0]
+        raw = item.text(0)
+        # Strip emoji and counts
+        clean = raw.replace("⚡ ", "").replace("⏳ ", "").replace("✓ ", "").replace("⏸ ", "")
+        clean = clean.replace("📦 ", "").replace("💻 ", "").replace("🎬 ", "").replace("🎵 ", "").replace("📄 ", "").replace("📁 ", "")
+        text = clean.split(" (")[0]
         if text in ["Downloads", "Categories"]:
             return
         self.current_category_filter = text
@@ -524,6 +526,7 @@ class MainWindow(QMainWindow):
             manager.delete_download(task_id, delete_file=delete_disk_file)
 
         self._load_downloads_table()
+        trim_memory()
 
     def _open_selected_folder(self):
         ids = self._get_selected_task_ids()
@@ -555,7 +558,7 @@ class MainWindow(QMainWindow):
 
         act_copy_url = menu.addAction("Copy Download Link")
         act_copy_url.triggered.connect(self._copy_selected_url)
-        act_details = menu.addAction("Download Status & Details...")
+        act_details = menu.addAction("Download Details...")
         act_details.triggered.connect(lambda: self._open_progress_dialog(ids[0]))
 
         menu.addSeparator()
@@ -607,9 +610,10 @@ class MainWindow(QMainWindow):
         if close_to_tray and self.tray_icon.isSystemTrayAvailable():
             event.ignore()
             self.hide()
+            trim_memory() # Immediately trim RAM when minimized to tray!
             self.tray_icon.showMessage(
-                "DFM is still running",
-                "DFM will continue downloading in the background. Right-click the tray icon to exit.",
+                "DFM Running in Background",
+                "DFM is active in system tray using minimal RAM. Double-click tray icon to reopen.",
                 QSystemTrayIcon.MessageIcon.Information,
                 2000
             )

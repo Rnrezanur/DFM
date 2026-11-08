@@ -9,9 +9,12 @@ import sys
 import logging
 import threading
 from typing import Dict, List, Optional, Callable
-import yt_dlp
 
 logger = logging.getLogger("DFM.VideoDownloader")
+
+def _get_ydl():
+    import yt_dlp
+    return yt_dlp
 
 class VideoInfo:
     def __init__(self, title: str, duration: int, thumbnail: str, formats: List[Dict]):
@@ -53,6 +56,7 @@ class VideoDownloadTask:
     @classmethod
     def probe_media(cls, url: str) -> Optional[VideoInfo]:
         """Probe media link without downloading, returning available formats."""
+        yt_dlp = _get_ydl()
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
@@ -140,6 +144,7 @@ class VideoDownloadTask:
 
     def _progress_hook(self, d):
         if self._stop_event.is_set():
+            yt_dlp = _get_ydl()
             raise yt_dlp.utils.DownloadCancelled("Download canceled by user")
 
         if d.get("status") == "downloading":
@@ -155,6 +160,7 @@ class VideoDownloadTask:
                 self.on_status_change(self, "assembling")
 
     def _run(self):
+        yt_dlp = _get_ydl()
         out_tmpl = self.save_path
         # If user picked audio-only, format extension
         is_audio_only = "bestaudio" in self.format_id

@@ -110,3 +110,70 @@ def open_file_or_folder(path: str) -> bool:
         return True
     except Exception:
         return False
+
+def trim_memory():
+    """Forces Python and OS garbage collection to minimize RAM usage to the absolute minimum."""
+    import gc
+    gc.collect(2)
+
+    import platform
+    import ctypes
+    sys_name = platform.system()
+    try:
+        if sys_name == "Windows":
+            # SetProcessWorkingSetSize(-1, -1) empties the working set into paging file/free RAM
+            handle = ctypes.windll.kernel32.GetCurrentProcess()
+            ctypes.windll.kernel32.SetProcessWorkingSetSize(handle, -1, -1)
+        elif sys_name == "Linux":
+            try:
+                libc = ctypes.CDLL("libc.so.6")
+                libc.malloc_trim(0)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+def get_process_memory_mb() -> float:
+    """Returns the current process physical RAM footprint in MB."""
+    import platform
+    sys_name = platform.system()
+    try:
+        if sys_name == "Windows":
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+                _fields_ = [
+                    ('cb', wintypes.DWORD),
+                    ('PageFaultCount', wintypes.DWORD),
+                    ('PeakWorkingSetSize', ctypes.c_size_t),
+                    ('WorkingSetSize', ctypes.c_size_t),
+                    ('QuotaPeakPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
+                    ('PagefileUsage', ctypes.c_size_t),
+                    ('PeakPagefileUsage', ctypes.c_size_t),
+                    ('PrivateUsage', ctypes.c_size_t),
+                ]
+
+            func = getattr(ctypes.windll.kernel32, "K32GetProcessMemoryInfo", None) or getattr(ctypes.windll.psapi, "GetProcessMemoryInfo", None)
+            if func:
+                func.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX), wintypes.DWORD]
+                func.restype = wintypes.BOOL
+                pmc = PROCESS_MEMORY_COUNTERS_EX()
+                pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS_EX)
+                handle = ctypes.windll.kernel32.GetCurrentProcess()
+                if func(handle, ctypes.byref(pmc), pmc.cb):
+                    # PrivateUsage represents the actual unshared memory consumed by the application
+                    return round(pmc.PrivateUsage / (1024 * 1024), 1)
+        else:
+            # Linux /proc/self/status
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        parts = line.split()
+                        return round(int(parts[1]) / 1024.0, 1)
+    except Exception:
+        pass
+    return 0.0

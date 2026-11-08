@@ -431,6 +431,8 @@ class DownloadTask:
                     pass
 
             self.set_status("completed")
+            from core.utils import trim_memory
+            trim_memory()
             if self.on_complete:
                 self.on_complete(self)
 

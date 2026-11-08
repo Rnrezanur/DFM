@@ -42,14 +42,14 @@ class DownloadProgressDialog(QDialog):
 
         # Header info box
         info_frame = QFrame()
-        info_frame.setStyleSheet("background-color: #1e1f22; border-radius: 6px; padding: 10px;")
+        info_frame.setStyleSheet("background-color: #121520; border: 1px solid #1f2538; border-radius: 8px; padding: 12px;")
         info_layout = QVBoxLayout(info_frame)
         info_layout.setSpacing(6)
 
         self.fn_lbl = QLabel("File: ...")
-        self.fn_lbl.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffffff;")
+        self.fn_lbl.setStyleSheet("font-weight: 700; font-size: 14px; color: #f8fafc;")
         self.url_lbl = QLabel("URL: ...")
-        self.url_lbl.setStyleSheet("color: #949ba4; font-size: 11px;")
+        self.url_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
         self.url_lbl.setWordWrap(True)
 
         info_layout.addWidget(self.fn_lbl)
@@ -219,3 +219,9 @@ class DownloadProgressDialog(QDialog):
             folder = os.path.dirname(item["save_path"])
             if os.path.exists(folder):
                 open_file_or_folder(folder)
+
+    def closeEvent(self, event):
+        self.timer.stop()
+        from core.utils import trim_memory
+        trim_memory()
+        event.accept()

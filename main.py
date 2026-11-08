@@ -8,7 +8,6 @@ import os
 import logging
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
-import qdarktheme
 
 # Add current folder to sys.path
 if getattr(sys, "frozen", False):
@@ -20,6 +19,8 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from ui.main_window import MainWindow
+from ui.theme import MODERN_DARK_STYLESHEET
+from core.utils import trim_memory
 
 def setup_logging():
     log_dir = os.path.join(os.path.expanduser("~"), ".dfm")
@@ -49,11 +50,8 @@ def main():
     app.setApplicationName("DFM")
     app.setOrganizationName("DFM")
 
-    # Apply modern dark theme
-    try:
-        app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
-    except Exception as e:
-        logger.warning(f"Failed to load dark stylesheet: {e}")
+    # Apply ultra-lightweight modern Fluent dark theme
+    app.setStyleSheet(MODERN_DARK_STYLESHEET)
 
     # Set Application Icon
     icon_path = os.path.join(BASE_DIR, "assets", "dfm_icon.png")
@@ -64,6 +62,9 @@ def main():
     # Launch main window
     window = MainWindow()
     window.show()
+
+    # Immediate RAM trim after GUI initialization
+    trim_memory()
 
     # If launched with a URL argument (e.g. from browser or command line: dfm.exe "https://...")
     if len(sys.argv) > 1 and sys.argv[1].startswith("http"):

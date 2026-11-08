@@ -210,22 +210,16 @@ class AddDownloadDialog(QDialog):
         btn_layout.addWidget(self.download_later_btn)
 
         self.start_btn = QPushButton("Download Now")
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6;
-                color: white;
-                font-weight: bold;
-                padding: 6px 16px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #2563eb;
-            }
-        """)
+        self.start_btn.setObjectName("primaryButton")
         self.start_btn.clicked.connect(lambda: self._submit(auto_start=True))
         btn_layout.addWidget(self.start_btn)
 
         layout.addLayout(btn_layout)
+
+    def closeEvent(self, event):
+        from core.utils import trim_memory
+        trim_memory()
+        event.accept()
 
     def _on_url_changed(self, text):
         if text.startswith("http://") or text.startswith("https://"):
