@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DFM Downloader
+GenericName=Internet Download Manager
+Comment=High-Speed Multi-Threaded Download Accelerator and Video Grabber
+Exec=dfm %U
+Icon=dfm
+Terminal=false
+Categories=Network;FileTransfer;
+MimeType=x-scheme-handler/dfm;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+StartupWMClass=DFM
+Keywords=download;idm;manager;torrent;video;youtube;accelerator;

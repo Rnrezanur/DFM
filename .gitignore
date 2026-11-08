@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Build outputs
+build/
+dist/
+installer_output/
+*.spec
+DFM_Setup.exe
+
+# Local databases and runtime state
+*.db
+*.db-journal
+*.log
+.dfm/
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# OS artifacts
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+*.lnk
+
+# Test outputs
+test_output/
+*.part*
+*.dfm_meta

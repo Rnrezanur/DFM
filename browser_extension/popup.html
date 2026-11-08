@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>DFM Integration</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 260px;
+      margin: 0;
+      padding: 16px;
+      background: #18191c;
+      color: #e3e5e8;
+    }
+    h3 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+      color: #5865f2;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+    .status-online {
+      background: #23a55a22;
+      color: #23a55a;
+      border: 1px solid #23a55a;
+    }
+    .status-offline {
+      background: #f23f4322;
+      color: #f23f43;
+      border: 1px solid #f23f43;
+    }
+    button {
+      width: 100%;
+      background: #5865f2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+    }
+    button:hover {
+      background: #4752c4;
+    }
+  </style>
+</head>
+<body>
+  <h3>⚡ DFM Downloader</h3>
+  <div id="status" class="status-badge status-offline">Checking status...</div>
+  <p style="font-size: 13px; color: #949ba4; margin-top: 0;">Send current tab URL or right click any link to download with high-speed multi-threading.</p>
+  <button id="sendCurrent">Download This Page/Media</button>
+  <script src="popup.js"></script>
+</body>
+</html>

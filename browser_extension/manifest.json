@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "DFM Download Integration",
+  "version": "1.0.0",
+  "description": "Seamlessly send downloads and streaming media from Chrome/Edge to DFM (Download Fast Manager).",
+  "permissions": [
+    "contextMenus",
+    "downloads"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:9666/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DFM Downloader"
+  }
+}
