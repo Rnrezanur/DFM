@@ -52,7 +52,7 @@ class DownloadManager:
         save_dir: str,
         is_video: bool = False,
         video_format: Optional[str] = None,
-        segments_count: int = 8,
+        segments_count: int = 16,
         headers: Optional[Dict] = None,
         auto_start: bool = True
     ) -> str:

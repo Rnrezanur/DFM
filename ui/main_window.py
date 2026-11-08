@@ -30,6 +30,7 @@ from ui.dialogs.add_download_dialog import AddDownloadDialog
 from ui.dialogs.download_progress_dialog import DownloadProgressDialog
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.delegates.progress_delegate import ModernProgressDelegate, ModernStatusPillDelegate
+from ui.theme import get_theme_stylesheet
 
 class BridgeNotifier(QObject):
     browser_download_received = pyqtSignal(str, str, bool)
@@ -46,6 +47,10 @@ class MainWindow(QMainWindow):
         self.current_category_filter = "All Downloads"
         self.search_filter = ""
         self.progress_dialogs = {}
+
+        # Theme Configuration
+        self.current_theme = db.get_setting("theme", "dark")
+        self.is_dark = "light" not in self.current_theme.lower()
 
         # Event Bridge
         self.notifier = BridgeNotifier()
@@ -84,8 +89,8 @@ class MainWindow(QMainWindow):
         top_header.setFixedHeight(54)
 
         top_layout = QHBoxLayout(top_header)
-        top_layout.setContentsMargins(16, 0, 16, 0)
-        top_layout.setSpacing(10)
+        top_layout.setContentsMargins(14, 0, 14, 0)
+        top_layout.setSpacing(6)
         top_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         # Brand Logo & Title
@@ -143,13 +148,19 @@ class MainWindow(QMainWindow):
         self.btn_settings.clicked.connect(self.show_settings_dialog)
         top_layout.addWidget(self.btn_settings)
 
+        self.btn_theme_toggle = QPushButton("☀️ Light" if self.is_dark else "🌙 Dark")
+        self.btn_theme_toggle.setFixedHeight(32)
+        self.btn_theme_toggle.setToolTip("Switch between Fluent Light and Dark Themes")
+        self.btn_theme_toggle.clicked.connect(self._toggle_theme)
+        top_layout.addWidget(self.btn_theme_toggle)
+
         top_layout.addStretch()
 
         # Search Box
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("searchBar")
-        self.search_edit.setPlaceholderText("🔍 Search downloads...")
-        self.search_edit.setFixedWidth(200)
+        self.search_edit.setPlaceholderText("🔍 Search...")
+        self.search_edit.setFixedWidth(160)
         self.search_edit.setFixedHeight(32)
         self.search_edit.textChanged.connect(self._on_search_changed)
         top_layout.addWidget(self.search_edit)
@@ -174,9 +185,12 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.tree)
 
         # Mini System Info Card at bottom of sidebar
-        sys_card = QFrame()
-        sys_card.setStyleSheet("background-color: #0c0f16; border-top: 1px solid #161b26; padding: 10px;")
-        card_layout = QVBoxLayout(sys_card)
+        self.sys_card = QFrame()
+        self.sys_card.setStyleSheet(
+            "background-color: #0c0f16; border-top: 1px solid #161b26; padding: 10px;" if self.is_dark
+            else "background-color: #f1f5f9; border-top: 1px solid #e2e8f0; padding: 10px;"
+        )
+        card_layout = QVBoxLayout(self.sys_card)
         card_layout.setSpacing(4)
         card_layout.setContentsMargins(10, 8, 10, 8)
 
@@ -187,24 +201,30 @@ class MainWindow(QMainWindow):
 
         card_layout.addWidget(card_title)
         card_layout.addWidget(card_sub)
-        sidebar_layout.addWidget(sys_card)
+        sidebar_layout.addWidget(self.sys_card)
 
         main_splitter.addWidget(sidebar_widget)
 
         # Right Content Area (Stacked: Empty State or Downloads Table)
         self.stack = QStackedWidget()
-        self.stack.setStyleSheet("background-color: #0b0e14; border: none;")
+        self.stack.setStyleSheet(
+            "background-color: #0b0e14; border: none;" if self.is_dark
+            else "background-color: #f8fafc; border: none;"
+        )
 
         # Page 0: Empty State View
         self.empty_widget = QWidget()
         self.empty_widget.setObjectName("emptyWidget")
-        self.empty_widget.setStyleSheet("background-color: #0b0e14;")
+        self.empty_widget.setStyleSheet(
+            "background-color: #0b0e14;" if self.is_dark
+            else "background-color: #f8fafc;"
+        )
         empty_layout = QVBoxLayout(self.empty_widget)
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(12)
 
-        icon_lbl = QLabel("⚡")
-        icon_lbl.setStyleSheet("""
+        self.icon_lbl = QLabel("⚡")
+        self.icon_lbl.setStyleSheet("""
             font-size: 42px;
             color: #3b82f6;
             background: #172033;
@@ -215,24 +235,27 @@ class MainWindow(QMainWindow):
             min-height: 72px;
             max-height: 72px;
         """)
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        empty_title = QLabel("No Downloads Yet")
-        empty_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #f8fafc;")
+        self.empty_title = QLabel("No Downloads Yet")
+        self.empty_title.setStyleSheet(
+            "font-size: 18px; font-weight: 800; color: #f8fafc;" if self.is_dark
+            else "font-size: 18px; font-weight: 800; color: #0f172a;"
+        )
 
-        empty_desc = QLabel("Add a URL or copy any downloadable link from your browser to get started.")
-        empty_desc.setStyleSheet("color: #64748b; font-size: 13px; max-width: 440px;")
-        empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_desc.setWordWrap(True)
+        self.empty_desc = QLabel("Add a URL or copy any downloadable link from your browser to get started.")
+        self.empty_desc.setStyleSheet("color: #64748b; font-size: 13px; max-width: 440px;")
+        self.empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_desc.setWordWrap(True)
 
         empty_btn = QPushButton("＋ Add Your First Download")
         empty_btn.setObjectName("primaryAction")
         empty_btn.setFixedHeight(36)
         empty_btn.clicked.connect(self.show_add_dialog)
 
-        empty_layout.addWidget(icon_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
-        empty_layout.addWidget(empty_title, alignment=Qt.AlignmentFlag.AlignCenter)
-        empty_layout.addWidget(empty_desc, alignment=Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(self.icon_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(self.empty_title, alignment=Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(self.empty_desc, alignment=Qt.AlignmentFlag.AlignCenter)
         empty_layout.addWidget(empty_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         self.stack.addWidget(self.empty_widget)
 
@@ -250,8 +273,9 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(46)
         self.table.verticalHeader().setVisible(False)
 
-        # Custom high-performance delegates
-        self.progress_delegate = ModernProgressDelegate(self.table)
+        # Custom high-performance delegates with active theme awareness
+        self.progress_delegate = ModernProgressDelegate(self.table, is_dark=self.is_dark)
+        self.status_delegate = ModernStatusPillDelegate(self.table, is_dark=self.is_dark)
         self.status_delegate = ModernStatusPillDelegate(self.table)
         self.table.setItemDelegateForColumn(2, self.progress_delegate)
         self.table.setItemDelegateForColumn(3, self.status_delegate)
@@ -443,7 +467,66 @@ class MainWindow(QMainWindow):
 
     def show_settings_dialog(self):
         dialog = SettingsDialog(self)
-        dialog.exec()
+        if dialog.exec():
+            theme = db.get_setting("theme", "dark")
+            if theme != self.current_theme:
+                self._apply_theme(theme)
+
+    def _toggle_theme(self):
+        new_theme = "light" if self.is_dark else "dark"
+        self._apply_theme(new_theme)
+
+    def _apply_theme(self, theme_name: str):
+        self.current_theme = theme_name
+        is_dark = "light" not in theme_name.lower()
+        self.is_dark = is_dark
+        db.set_setting("theme", "dark" if is_dark else "light")
+
+        # Update delegates
+        self.progress_delegate.set_dark_mode(is_dark)
+        self.status_delegate.set_dark_mode(is_dark)
+
+        # Update button text
+        self.btn_theme_toggle.setText("☀️ Light" if is_dark else "🌙 Dark")
+
+        # Apply application-level style
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(get_theme_stylesheet(theme_name))
+
+        # Dynamic surfaces for empty state and sidebar card
+        if is_dark:
+            self.empty_widget.setStyleSheet("background-color: #0b0e14;")
+            self.stack.setStyleSheet("background-color: #0b0e14; border: none;")
+            self.empty_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #f8fafc;")
+            self.empty_desc.setStyleSheet("color: #64748b; font-size: 13px; max-width: 440px;")
+            self.sys_card.setStyleSheet("background-color: #0c0f16; border-top: 1px solid #161b26; padding: 10px;")
+            self.lbl_ram_usage.setStyleSheet("""
+                background: #064e3b;
+                color: #34d399;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 3px 10px;
+                border-radius: 10px;
+                margin-left: 8px;
+            """)
+        else:
+            self.empty_widget.setStyleSheet("background-color: #f8fafc;")
+            self.stack.setStyleSheet("background-color: #f8fafc; border: none;")
+            self.empty_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #0f172a;")
+            self.empty_desc.setStyleSheet("color: #64748b; font-size: 13px; max-width: 440px;")
+            self.sys_card.setStyleSheet("background-color: #f1f5f9; border-top: 1px solid #e2e8f0; padding: 10px;")
+            self.lbl_ram_usage.setStyleSheet("""
+                background: #d1fae5;
+                color: #065f46;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 3px 10px;
+                border-radius: 10px;
+                margin-left: 8px;
+            """)
+
+        self.table.viewport().update()
 
     def _on_search_changed(self, text):
         self.search_filter = text.strip().lower()

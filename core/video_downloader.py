@@ -172,6 +172,9 @@ class VideoDownloadTask:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
+            "concurrent_fragment_downloads": 8,
+            "buffersize": 1024 * 1024,
+            "http_chunk_size": 10485760,
         }
 
         if is_audio_only:

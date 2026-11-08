@@ -19,7 +19,8 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from ui.main_window import MainWindow
-from ui.theme import MODERN_DARK_STYLESHEET
+from ui.theme import get_theme_stylesheet
+from core.database import db
 from core.utils import trim_memory
 
 def setup_logging():
@@ -50,8 +51,9 @@ def main():
     app.setApplicationName("DFM")
     app.setOrganizationName("DFM")
 
-    # Apply ultra-lightweight modern Fluent dark theme
-    app.setStyleSheet(MODERN_DARK_STYLESHEET)
+    # Apply user-selected modern Fluent theme (Dark or Light)
+    theme = db.get_setting("theme", "dark")
+    app.setStyleSheet(get_theme_stylesheet(theme))
 
     # Set Application Icon
     icon_path = os.path.join(BASE_DIR, "assets", "dfm_icon.png")

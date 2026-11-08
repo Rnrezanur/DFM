@@ -2,13 +2,21 @@
 High-Performance Progress Bar & Status Pill Delegate.
 Renders progress bars and status badges directly with QPainter,
 completely eliminating QWidget memory overhead per row.
+Supports seamless switching between Modern Fluent Dark and Light themes.
 """
 
-from PyQt6.QtWidgets import QStyledItemDelegate, QStyle
+from PyQt6.QtWidgets import QStyledItemDelegate
 from PyQt6.QtCore import Qt, QRectF, QSize
 from PyQt6.QtGui import QPainter, QColor, QLinearGradient, QBrush, QPen, QFont
 
 class ModernProgressDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None, is_dark: bool = True):
+        super().__init__(parent)
+        self.is_dark = is_dark
+
+    def set_dark_mode(self, is_dark: bool):
+        self.is_dark = is_dark
+
     def paint(self, painter: QPainter, option, index):
         # Progress value stored as integer 0..100 in Qt.ItemDataRole.UserRole
         pct = index.data(Qt.ItemDataRole.UserRole)
@@ -34,8 +42,10 @@ class ModernProgressDelegate(QStyledItemDelegate):
         )
 
         # Background track
-        painter.setBrush(QBrush(QColor("#141724")))
-        painter.setPen(QPen(QColor("#23283b"), 1))
+        track_bg = QColor("#141724" if self.is_dark else "#e2e8f0")
+        track_pen = QColor("#23283b" if self.is_dark else "#cbd5e1")
+        painter.setBrush(QBrush(track_bg))
+        painter.setPen(QPen(track_pen, 1))
         painter.drawRoundedRect(bar_rect, 4, 4)
 
         # Filled track
@@ -58,7 +68,11 @@ class ModernProgressDelegate(QStyledItemDelegate):
         font.setPointSize(9)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor("#ffffff" if pct > 45 else "#94a3b8"))
+        if pct > 45:
+            text_color = QColor("#ffffff")
+        else:
+            text_color = QColor("#94a3b8" if self.is_dark else "#475569")
+        painter.setPen(text_color)
         painter.drawText(bar_rect, Qt.AlignmentFlag.AlignCenter, f"{pct}%")
 
         painter.restore()
@@ -68,6 +82,13 @@ class ModernProgressDelegate(QStyledItemDelegate):
 
 
 class ModernStatusPillDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None, is_dark: bool = True):
+        super().__init__(parent)
+        self.is_dark = is_dark
+
+    def set_dark_mode(self, is_dark: bool):
+        self.is_dark = is_dark
+
     def paint(self, painter: QPainter, option, index):
         status_text = index.data(Qt.ItemDataRole.DisplayRole) or ""
         status_lower = status_text.lower()
@@ -79,31 +100,31 @@ class ModernStatusPillDelegate(QStyledItemDelegate):
         pill_height = 20
         pill_y = rect.y() + (rect.height() - pill_height) / 2.0
 
-        # Colors based on state
+        # Colors based on state and current theme mode
         if "completed" in status_lower:
-            bg_color = QColor("#064e3b")
-            border_color = QColor("#059669")
-            text_color = QColor("#34d399")
+            bg_color = QColor("#064e3b" if self.is_dark else "#ecfdf5")
+            border_color = QColor("#059669" if self.is_dark else "#6ee7b7")
+            text_color = QColor("#34d399" if self.is_dark else "#047857")
             icon_char = "✓"
         elif "downloading" in status_lower:
-            bg_color = QColor("#1e3a8a")
-            border_color = QColor("#2563eb")
-            text_color = QColor("#60a5fa")
+            bg_color = QColor("#1e3a8a" if self.is_dark else "#eff6ff")
+            border_color = QColor("#2563eb" if self.is_dark else "#93c5fd")
+            text_color = QColor("#60a5fa" if self.is_dark else "#1d4ed8")
             icon_char = "⬇"
         elif "paused" in status_lower:
-            bg_color = QColor("#451a03")
-            border_color = QColor("#d97706")
-            text_color = QColor("#fbbf24")
+            bg_color = QColor("#451a03" if self.is_dark else "#fffbeb")
+            border_color = QColor("#d97706" if self.is_dark else "#fcd34d")
+            text_color = QColor("#fbbf24" if self.is_dark else "#b45309")
             icon_char = "⏸"
         elif "assembling" in status_lower:
-            bg_color = QColor("#3b0764")
-            border_color = QColor("#9333ea")
-            text_color = QColor("#c084fc")
+            bg_color = QColor("#3b0764" if self.is_dark else "#faf5ff")
+            border_color = QColor("#9333ea" if self.is_dark else "#d8b4fe")
+            text_color = QColor("#c084fc" if self.is_dark else "#7e22ce")
             icon_char = "⚡"
         else: # error / pending
-            bg_color = QColor("#450a0a")
-            border_color = QColor("#dc2626")
-            text_color = QColor("#f87171")
+            bg_color = QColor("#450a0a" if self.is_dark else "#fef2f2")
+            border_color = QColor("#dc2626" if self.is_dark else "#fca5a5")
+            text_color = QColor("#f87171" if self.is_dark else "#b91c1c")
             icon_char = "⚠"
 
         label = f"{icon_char} {status_text.capitalize()}"

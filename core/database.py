@@ -66,14 +66,15 @@ class Database:
         default_dir = os.path.join(os.path.expanduser("~"), "Downloads", "DFM")
         defaults = {
             "default_download_dir": default_dir,
-            "max_concurrent_downloads": "3",
-            "default_segments": "8",
+            "max_concurrent_downloads": "5",
+            "default_segments": "16",
             "speed_limit_enabled": "0",
             "speed_limit_kbps": "0",
             "clipboard_monitor": "1",
             "browser_bridge_port": "9666",
             "auto_start_downloads": "1",
-            "close_to_tray": "1"
+            "close_to_tray": "1",
+            "theme": "dark"
         }
         for k, v in defaults.items():
             if self.get_setting(k) is None:

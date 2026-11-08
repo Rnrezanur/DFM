@@ -7,7 +7,7 @@ import os
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QSpinBox, QCheckBox,
-    QFileDialog, QGroupBox, QMessageBox
+    QFileDialog, QGroupBox, QMessageBox, QComboBox
 )
 from core.database import db
 
@@ -40,6 +40,17 @@ class SettingsDialog(QDialog):
         storage_layout.addLayout(dir_h_layout)
 
         layout.addWidget(storage_group)
+
+        # Appearance & Theme Group
+        theme_group = QGroupBox("Appearance & Interface")
+        theme_layout = QHBoxLayout(theme_group)
+        theme_lbl = QLabel("Color Theme:")
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Fluent Dark", "Fluent Light"])
+        theme_layout.addWidget(theme_lbl)
+        theme_layout.addStretch()
+        theme_layout.addWidget(self.theme_combo)
+        layout.addWidget(theme_group)
 
         # Connection Engine Group
         engine_group = QGroupBox("Multi-Threaded Download Engine")
@@ -135,8 +146,10 @@ class SettingsDialog(QDialog):
     def _load_settings(self):
         default_dir = os.path.join(os.path.expanduser("~"), "Downloads", "DFM")
         self.dir_edit.setText(db.get_setting("default_download_dir", default_dir))
-        self.segments_spin.setValue(int(db.get_setting("default_segments", "8")))
-        self.conc_spin.setValue(int(db.get_setting("max_concurrent_downloads", "3")))
+        theme = db.get_setting("theme", "dark")
+        self.theme_combo.setCurrentText("Fluent Light" if "light" in theme.lower() else "Fluent Dark")
+        self.segments_spin.setValue(int(db.get_setting("default_segments", "16")))
+        self.conc_spin.setValue(int(db.get_setting("max_concurrent_downloads", "5")))
         self.speed_limit_chk.setChecked(db.get_setting("speed_limit_enabled", "0") == "1")
         self.speed_limit_spin.setValue(int(db.get_setting("speed_limit_kbps", "1024")))
         self.clipboard_chk.setChecked(db.get_setting("clipboard_monitor", "1") == "1")
@@ -146,6 +159,8 @@ class SettingsDialog(QDialog):
 
     def _save_settings(self):
         db.set_setting("default_download_dir", self.dir_edit.text().strip())
+        chosen_theme = "light" if "light" in self.theme_combo.currentText().lower() else "dark"
+        db.set_setting("theme", chosen_theme)
         db.set_setting("default_segments", str(self.segments_spin.value()))
         db.set_setting("max_concurrent_downloads", str(self.conc_spin.value()))
         db.set_setting("speed_limit_enabled", "1" if self.speed_limit_chk.isChecked() else "0")
