@@ -5,7 +5,7 @@ completely eliminating QWidget memory overhead per row.
 """
 
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyle
-from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtCore import Qt, QRectF, QSize
 from PyQt6.QtGui import QPainter, QColor, QLinearGradient, QBrush, QPen, QFont
 
 class ModernProgressDelegate(QStyledItemDelegate):
@@ -63,6 +63,9 @@ class ModernProgressDelegate(QStyledItemDelegate):
 
         painter.restore()
 
+    def sizeHint(self, option, index):
+        return QSize(160, 36)
+
 
 class ModernStatusPillDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option, index):
@@ -113,9 +116,10 @@ class ModernStatusPillDelegate(QStyledItemDelegate):
         # Calculate text width
         metrics = painter.fontMetrics()
         text_w = metrics.horizontalAdvance(label)
-        pill_width = text_w + 16
+        pill_width = max(80.0, text_w + 18.0)
+        pill_x = rect.x() + max(4.0, (rect.width() - pill_width) / 2.0)
 
-        pill_rect = QRectF(rect.x() + 6, pill_y, pill_width, pill_height)
+        pill_rect = QRectF(pill_x, pill_y, pill_width, pill_height)
 
         # Draw Pill
         painter.setBrush(QBrush(bg_color))
@@ -127,3 +131,6 @@ class ModernStatusPillDelegate(QStyledItemDelegate):
         painter.drawText(pill_rect, Qt.AlignmentFlag.AlignCenter, label)
 
         painter.restore()
+
+    def sizeHint(self, option, index):
+        return QSize(125, 36)

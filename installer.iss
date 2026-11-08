@@ -4,7 +4,7 @@
 #define MyAppName "DFM Downloader"
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "DFM Team"
-#define MyAppURL "https://github.com/dfm/dfm"
+#define MyAppURL "https://github.com/Rnrezanur/DFM"
 #define MyAppExeName "DFM.exe"
 
 [Setup]
