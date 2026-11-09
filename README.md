@@ -32,11 +32,13 @@
    - **Tampermonkey / Violentmonkey Userscript**:
      - Floating *"Download with DFM"* button appears right on YouTube, Facebook, TikTok, and video players.
 
-5. **Modern Windows 11 Dark Interface**:
-   - Category filtering: *All Downloads, Downloading, Finished, Unfinished, Compressed, Programs, Video, Audio, Documents, Others*.
-   - Live speed graph, transfer rate, ETA calculator, and per-download progress bars.
-   - System tray minimization with toast notification balloons upon download completion.
-   - Configurable speed limiter (bandwidth throttle).
+5. **Modern IDM-Style Interface**:
+   - Iconic vertical action toolbar: `Add URL`, `Resume`, `Stop`, `Stop All`, `Delete`, `Delete Completed`, `Options`, `Scheduler`, `Start Queue`, `Stop Queue`.
+   - Real native operating system file type badges (`.exe`, `.pdf`, `.mp4`, `.zip`, `.iso`, etc.) right next to file names.
+   - Hierarchical Categories tree with live counts: `All Downloads`, `Compressed`, `Documents`, `Music`, `Programs`, `Video`, `Unfinished`, `Finished`, `Grabber projects`, `Queues`.
+   - High-density compact table grid view with live speed, ETA, and progress metrics.
+   - Dual theme support: Professional IDM Modern Dark & IDM Modern Light with one-click instant toggle.
+   - Ultra-low RAM footprint (~35–45 MB) with automatic Windows Working Set trimming.
 
 ---
 
