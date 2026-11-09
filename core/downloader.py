@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 logger = logging.getLogger("DFM.Downloader")
 
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 DFM/2.0"
-CHUNK_SIZE = 256 * 1024  # 256 KB high-throughput read buffer (IDM-grade)
+CHUNK_SIZE = 64 * 1024  # 64 KB optimized stream chunk (prevents I/O blocking & thread stalls)
 
 class DownloadSegment:
     def __init__(self, index: int, start: int, end: int, downloaded: int = 0):
@@ -308,7 +308,9 @@ class DownloadTask:
             if not self.supports_range or self._stop_event.is_set() or self._pause_event.is_set():
                 return None
 
-            if len(self.segments) >= 32:
+            # Prevent excessive connection ballooning that triggers server rate-limits
+            max_allowed = min(self.num_segments + 4, 16)
+            if len(self.segments) >= max_allowed:
                 return None
 
             best_seg = None
@@ -321,8 +323,9 @@ class DownloadTask:
                         best_remaining = rem
                         best_seg = s
 
-            # Only split if remaining is at least 3 MB
-            MIN_SPLIT_SIZE = 3 * 1024 * 1024
+            # Only split if remaining chunk is substantial (at least 12 MB)
+            # Splitting tiny chunks causes TCP slow-start overhead and socket thrashing
+            MIN_SPLIT_SIZE = 12 * 1024 * 1024
             if best_seg is None or best_remaining < MIN_SPLIT_SIZE:
                 return None
 
@@ -393,7 +396,7 @@ class DownloadTask:
         while retries < max_retries and not self._stop_event.is_set() and not self._pause_event.is_set():
             try:
                 mode = "ab" if seg.downloaded > 0 and self.supports_range else "wb"
-                with self.session.get(self.url, headers=req_headers, stream=True, timeout=15) as resp:
+                with self.session.get(self.url, headers=req_headers, stream=True, timeout=(8, 25)) as resp:
                     if resp.status_code >= 400:
                         server_hdr = resp.headers.get("Server", "").lower()
                         cf_mitigated = resp.headers.get("Cf-Mitigated", "").lower()
@@ -416,7 +419,7 @@ class DownloadTask:
                     if resp.status_code not in (200, 206):
                         raise Exception(f"HTTP status {resp.status_code}")
 
-                    with open(part_path, mode) as f:
+                    with open(part_path, mode, buffering=512 * 1024) as f:
                         for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
                             if self._stop_event.is_set() or self._pause_event.is_set():
                                 break
@@ -456,12 +459,12 @@ class DownloadTask:
                     if self.supports_range:
                         current_start = seg.start + seg.downloaded
                         req_headers["Range"] = f"bytes={current_start}-{seg.end}" if seg.end > 0 else f"bytes={current_start}-"
-                    time.sleep(1)
+                    time.sleep(0.5)
 
             except Exception as e:
                 retries += 1
                 logger.warning(f"Segment {seg.index} attempt {retries} failed: {e}")
-                time.sleep(1.5)
+                time.sleep(0.5)
                 if self.supports_range:
                     current_start = seg.start + seg.downloaded
                     req_headers["Range"] = f"bytes={current_start}-{seg.end}" if seg.end > 0 else f"bytes={current_start}-"
@@ -481,20 +484,26 @@ class DownloadTask:
         self._last_downloaded = sum(seg.downloaded for seg in self.segments)
 
         while not self._stop_event.is_set() and not self._pause_event.is_set():
-            time.sleep(0.5)
+            time.sleep(0.3)
             now = time.time()
             elapsed = now - self._last_speed_time
 
             total_down = sum(seg.downloaded for seg in self.segments)
             self.downloaded_bytes = total_down
 
-            if elapsed >= 0.5:
+            if elapsed >= 0.3:
                 delta = total_down - self._last_downloaded
-                self.speed = max(0.0, delta / elapsed)
+                instant_speed = max(0.0, delta / elapsed)
                 self._last_downloaded = total_down
                 self._last_speed_time = now
 
-                # Calculate ETA
+                # Exponential Moving Average for stable, rock-steady IDM-grade speed display
+                if self.speed <= 0.0 or instant_speed == 0.0:
+                    self.speed = instant_speed if self.speed <= 0.0 else (0.35 * instant_speed + 0.65 * self.speed)
+                else:
+                    self.speed = (0.35 * instant_speed) + (0.65 * self.speed)
+
+                # Calculate ETA with smoothed speed
                 if self.total_bytes > 0 and self.speed > 0:
                     remaining = max(0, self.total_bytes - total_down)
                     self.eta = int(remaining / self.speed)

@@ -202,7 +202,7 @@ class AddDownloadDialog(QDialog):
         seg_lbl = QLabel("Segments:")
         self.segments_spin = QSpinBox()
         self.segments_spin.setRange(1, 32)
-        default_segs = int(db.get_setting("default_segments", "16"))
+        default_segs = int(db.get_setting("default_segments", "8"))
         self.segments_spin.setValue(default_segs)
 
         meta_layout.addWidget(self.size_info_lbl)
