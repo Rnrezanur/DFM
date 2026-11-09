@@ -56,6 +56,53 @@ class DownloadProgressDialog(QDialog):
         info_layout.addWidget(self.url_lbl)
         layout.addWidget(info_frame)
 
+        # Error / Blocked notification panel
+        self.error_frame = QFrame()
+        self.error_frame.setStyleSheet("""
+            QFrame {
+                background-color: rgba(239, 68, 68, 0.12);
+                border: 1px solid #ef4444;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        err_box_layout = QVBoxLayout(self.error_frame)
+        err_box_layout.setContentsMargins(10, 8, 10, 8)
+        err_box_layout.setSpacing(6)
+
+        err_header_layout = QHBoxLayout()
+        self.error_title_lbl = QLabel("⚠️ Connection Blocked / Download Error")
+        self.error_title_lbl.setStyleSheet("color: #ef4444; font-weight: bold; font-size: 13px;")
+        err_header_layout.addWidget(self.error_title_lbl)
+        err_header_layout.addStretch()
+
+        self.browser_action_btn = QPushButton("🌐 Open Link in Browser")
+        self.browser_action_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: #ffffff;
+                border: none;
+                border-radius: 5px;
+                padding: 5px 12px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+        """)
+        self.browser_action_btn.clicked.connect(self._open_in_browser)
+        err_header_layout.addWidget(self.browser_action_btn)
+        err_box_layout.addLayout(err_header_layout)
+
+        self.error_desc_lbl = QLabel("")
+        self.error_desc_lbl.setStyleSheet("color: #fca5a5; font-size: 12px;")
+        self.error_desc_lbl.setWordWrap(True)
+        err_box_layout.addWidget(self.error_desc_lbl)
+
+        layout.addWidget(self.error_frame)
+        self.error_frame.hide()
+
         # Metrics Grid
         metrics_group = QGroupBox("Transfer Metrics")
         metrics_layout = QVBoxLayout(metrics_group)
@@ -180,18 +227,38 @@ class DownloadProgressDialog(QDialog):
         else:
             self.seg_bar.set_segments([], overall_progress=pct / 100.0)
 
-        if status == "completed":
+        if status == "error":
+            err_msg = item.get("error_message") or "Download encountered an error connecting to server."
+            self.status_val.setText("Status: Error")
+            self.status_val.setStyleSheet("color: #ef4444; font-weight: 700;")
+            self.error_desc_lbl.setText(err_msg)
+            self.error_frame.show()
+            self.pause_resume_btn.setText("Retry")
+            self.pause_resume_btn.setEnabled(True)
+            self.open_file_btn.setEnabled(False)
+        elif status == "completed":
+            self.status_val.setStyleSheet("color: #22c55e; font-weight: 700;")
+            self.error_frame.hide()
             self.pause_resume_btn.setEnabled(False)
             self.open_file_btn.setEnabled(True)
             self.timer.stop()
             if self.open_when_done_chk.isChecked():
                 self._open_file()
         elif status == "paused":
+            self.status_val.setStyleSheet("color: #eab308; font-weight: 700;")
+            self.error_frame.hide()
             self.pause_resume_btn.setText("Resume")
             self.pause_resume_btn.setEnabled(True)
         else:
+            self.status_val.setStyleSheet("")
+            self.error_frame.hide()
             self.pause_resume_btn.setText("Pause")
             self.pause_resume_btn.setEnabled(True)
+
+    def _open_in_browser(self):
+        item = db.get_download(self.task_id)
+        if item and item.get("url"):
+            QDesktopServices.openUrl(QUrl(item["url"]))
 
     def _toggle_pause_resume(self):
         item = db.get_download(self.task_id)

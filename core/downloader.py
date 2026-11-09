@@ -10,7 +10,7 @@ import json
 import logging
 import threading
 import requests
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Union
 from urllib.parse import urlparse
 
 logger = logging.getLogger("DFM.Downloader")
@@ -64,6 +64,7 @@ class DownloadTask:
         save_path: str,
         segments_count: int = 16,
         headers: Optional[Dict] = None,
+        cookies: Optional[Union[Dict, str]] = None,
         on_progress: Optional[Callable] = None,
         on_status_change: Optional[Callable] = None,
         on_complete: Optional[Callable] = None,
@@ -114,6 +115,16 @@ class DownloadTask:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
+        # Apply cookies if provided
+        if cookies:
+            if isinstance(cookies, dict):
+                self.session.cookies.update(cookies)
+            elif isinstance(cookies, str):
+                for pair in cookies.split(";"):
+                    if "=" in pair:
+                        k, v = pair.strip().split("=", 1)
+                        self.session.cookies.set(k.strip(), v.strip())
+
     def get_part_file_path(self, segment_index: int) -> str:
         return f"{self.save_path}.part{segment_index}"
 
@@ -130,6 +141,24 @@ class DownloadTask:
             # Final URL after redirects
             self.url = resp.url
             status_code = resp.status_code
+
+            # Handle HTTP errors and anti-bot challenges
+            if status_code >= 400:
+                server_hdr = resp.headers.get("Server", "").lower()
+                cf_mitigated = resp.headers.get("Cf-Mitigated", "").lower()
+                is_cf = ("cloudflare" in server_hdr or "challenge" in cf_mitigated)
+                resp.close()
+                if is_cf:
+                    self.error_message = f"Cloudflare anti-bot challenge (HTTP {status_code}). Human browser verification required."
+                elif status_code == 403:
+                    self.error_message = f"Access forbidden (HTTP 403). Direct download without browser session is blocked."
+                elif status_code == 404:
+                    self.error_message = f"File not found (HTTP 404). Link may have expired or is invalid."
+                elif status_code == 401:
+                    self.error_message = f"Unauthorized (HTTP 401). Authentication credentials required."
+                else:
+                    self.error_message = f"Server returned HTTP error {status_code}."
+                return False
 
             if status_code == 206:
                 self.supports_range = True
@@ -213,7 +242,7 @@ class DownloadTask:
 
         if not self.segments:
             if not self.probe():
-                self.set_status("error", f"Connection failed: {self.error_message}")
+                self.set_status("error", self.error_message or "Connection failed")
                 return
             self.setup_segments()
 
@@ -266,6 +295,8 @@ class DownloadTask:
             self.error_message = error_msg
         if self.on_status_change:
             self.on_status_change(self, new_status)
+        if new_status == "error" and self.on_error:
+            self.on_error(self, self.error_message)
 
     def _try_split_largest_segment(self, finished_worker_seg: DownloadSegment) -> Optional[DownloadSegment]:
         """
@@ -363,6 +394,25 @@ class DownloadTask:
             try:
                 mode = "ab" if seg.downloaded > 0 and self.supports_range else "wb"
                 with self.session.get(self.url, headers=req_headers, stream=True, timeout=15) as resp:
+                    if resp.status_code >= 400:
+                        server_hdr = resp.headers.get("Server", "").lower()
+                        cf_mitigated = resp.headers.get("Cf-Mitigated", "").lower()
+                        is_cf = ("cloudflare" in server_hdr or "challenge" in cf_mitigated)
+                        if is_cf:
+                            err_text = f"Cloudflare anti-bot challenge (HTTP {resp.status_code})"
+                        elif resp.status_code == 403:
+                            err_text = f"Access forbidden (HTTP 403). Direct download blocked."
+                        elif resp.status_code == 404:
+                            err_text = f"File not found (HTTP 404)"
+                        elif resp.status_code == 401:
+                            err_text = f"Unauthorized (HTTP 401)"
+                        else:
+                            err_text = f"Server returned HTTP {resp.status_code}"
+                        seg.status = "error"
+                        seg.error_msg = err_text
+                        self.error_message = err_text
+                        return
+
                     if resp.status_code not in (200, 206):
                         raise Exception(f"HTTP status {resp.status_code}")
 
@@ -463,7 +513,9 @@ class DownloadTask:
                 self._finalize_download()
                 return
             elif any_error and all(seg.status in ["completed", "error"] for seg in self.segments):
-                self.set_status("error", "One or more download segments failed")
+                first_seg_err = next((s.error_msg for s in self.segments if s.error_msg), "")
+                final_err = first_seg_err or self.error_message or "One or more download segments failed"
+                self.set_status("error", final_err)
                 return
 
     def _finalize_download(self):

@@ -27,9 +27,10 @@ class ProbeThread(QThread):
     info_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, custom_headers: dict = None):
         super().__init__()
         self.url = url
+        self.custom_headers = custom_headers or {}
 
     def run(self):
         try:
@@ -58,7 +59,29 @@ class ProbeThread(QThread):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                 "Range": "bytes=0-0"
             }
+            if self.custom_headers:
+                headers.update(self.custom_headers)
+
             resp = requests.get(self.url, headers=headers, stream=True, timeout=10, allow_redirects=True)
+            status_code = resp.status_code
+
+            if status_code >= 400:
+                server_hdr = resp.headers.get("Server", "").lower()
+                cf_mitigated = resp.headers.get("Cf-Mitigated", "").lower()
+                is_cf = ("cloudflare" in server_hdr or "challenge" in cf_mitigated)
+                resp.close()
+                if is_cf:
+                    self.error_occurred.emit(f"Cloudflare Turnstile challenge detected (HTTP {status_code}). Server requires human browser verification.")
+                elif status_code == 403:
+                    self.error_occurred.emit(f"Access forbidden (HTTP 403). Direct download blocked by server.")
+                elif status_code == 404:
+                    self.error_occurred.emit(f"File not found (HTTP 404). Link may have expired.")
+                elif status_code == 401:
+                    self.error_occurred.emit(f"Unauthorized (HTTP 401). Authentication credentials required.")
+                else:
+                    self.error_occurred.emit(f"Server returned HTTP error {status_code}")
+                return
+
             filename = extract_filename_from_url_or_headers(resp.url, dict(resp.headers))
 
             total_bytes = 0
@@ -92,7 +115,7 @@ class ProbeThread(QThread):
 
 
 class AddDownloadDialog(QDialog):
-    def __init__(self, parent=None, initial_url: str = "", is_media_hint: bool = False):
+    def __init__(self, parent=None, initial_url: str = "", is_media_hint: bool = False, headers: dict = None):
         super().__init__(parent)
         self.setWindowTitle("Enter New Download - DFM")
         self.setMinimumWidth(560)
@@ -100,9 +123,11 @@ class AddDownloadDialog(QDialog):
 
         self.probe_thread = None
         self.is_video = is_media_hint
+        self.custom_headers = headers or {}
         self.selected_format_id = None
         self.detected_total_bytes = 0
         self.confirmed_auto_start = True
+        self.confirmed_headers = self.custom_headers
 
         self._setup_ui()
         if initial_url:
@@ -195,6 +220,13 @@ class AddDownloadDialog(QDialog):
         self.loader_bar.hide()
         details_layout.addWidget(self.loader_bar)
 
+        # Warning / Challenge notice label
+        self.probe_warning_lbl = QLabel("")
+        self.probe_warning_lbl.setStyleSheet("color: #ef4444; font-size: 11px; padding: 6px; background-color: rgba(239, 68, 68, 0.12); border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.3);")
+        self.probe_warning_lbl.setWordWrap(True)
+        self.probe_warning_lbl.hide()
+        details_layout.addWidget(self.probe_warning_lbl)
+
         layout.addWidget(self.details_group)
 
         # Action Buttons
@@ -238,6 +270,7 @@ class AddDownloadDialog(QDialog):
         if not url:
             return
 
+        self.probe_warning_lbl.hide()
         self.loader_bar.show()
         self.size_info_lbl.setText("Size: Probing...")
         self.resume_info_lbl.setText("Resume: Checking...")
@@ -245,13 +278,14 @@ class AddDownloadDialog(QDialog):
         if self.probe_thread and self.probe_thread.isRunning():
             self.probe_thread.terminate()
 
-        self.probe_thread = ProbeThread(url)
+        self.probe_thread = ProbeThread(url, custom_headers=self.custom_headers)
         self.probe_thread.info_ready.connect(self._on_probe_ready)
         self.probe_thread.error_occurred.connect(self._on_probe_error)
         self.probe_thread.start()
 
     def _on_probe_ready(self, data: dict):
         self.loader_bar.hide()
+        self.probe_warning_lbl.hide()
         self.filename_edit.setText(data["filename"])
         self.detected_total_bytes = data["total_bytes"]
         self.is_video = data["is_video"]
@@ -281,9 +315,11 @@ class AddDownloadDialog(QDialog):
 
     def _on_probe_error(self, err: str):
         self.loader_bar.hide()
-        self.size_info_lbl.setText("Size: Unknown")
-        self.resume_info_lbl.setText("Resume: Untested")
+        self.size_info_lbl.setText("Size: Error")
+        self.resume_info_lbl.setText("Status: Blocked")
         self.resume_info_lbl.setStyleSheet("color: #ef4444;")
+        self.probe_warning_lbl.setText(f"⚠️ {err}")
+        self.probe_warning_lbl.show()
 
     def _submit(self, auto_start: bool):
         url = self.url_edit.text().strip()
@@ -306,5 +342,6 @@ class AddDownloadDialog(QDialog):
         self.confirmed_auto_start = auto_start
         self.confirmed_segments = self.segments_spin.value()
         self.confirmed_format_id = self.format_combo.currentData() if self.is_video else None
+        self.confirmed_headers = self.custom_headers
 
         self.accept()

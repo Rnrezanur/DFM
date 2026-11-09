@@ -50,9 +50,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 url = data.get("url")
                 filename = data.get("filename")
                 is_video = bool(data.get("is_video", False))
+                cookies = data.get("cookies", "")
+                referer = data.get("referer", "")
+                user_agent = data.get("userAgent", "")
+
+                headers = dict(data.get("headers", {}) or {})
+                if referer:
+                    headers["Referer"] = referer
+                if user_agent:
+                    headers["User-Agent"] = user_agent
+                if cookies:
+                    headers["Cookie"] = cookies
 
                 if url and BridgeRequestHandler.on_browser_download:
-                    BridgeRequestHandler.on_browser_download(url, filename, is_video)
+                    BridgeRequestHandler.on_browser_download(url, filename, is_video, headers)
 
                 self.send_response(200)
                 self._send_cors_headers()

@@ -33,7 +33,7 @@ from ui.delegates.progress_delegate import ModernProgressDelegate, ModernStatusP
 from ui.theme import get_theme_stylesheet
 
 class BridgeNotifier(QObject):
-    browser_download_received = pyqtSignal(str, str, bool)
+    browser_download_received = pyqtSignal(str, str, bool, dict)
     clipboard_url_received = pyqtSignal(str, bool)
     manager_event = pyqtSignal(str, str, dict)
 
@@ -417,15 +417,15 @@ class MainWindow(QMainWindow):
         port = int(db.get_setting("browser_bridge_port", "9666"))
         self.bridge_server = BrowserBridgeServer(
             port=port,
-            on_browser_download=lambda u, fn, is_v: self.notifier.browser_download_received.emit(u, fn or "", is_v)
+            on_browser_download=lambda u, fn, is_v, hdrs: self.notifier.browser_download_received.emit(u, fn or "", is_v, hdrs or {})
         )
         self.bridge_server.start()
 
-    def _handle_browser_download(self, url: str, filename: str, is_video: bool):
+    def _handle_browser_download(self, url: str, filename: str, is_video: bool, headers: dict = None):
         self.showNormal()
         self.raise_()
         self.activateWindow()
-        self.show_add_dialog(initial_url=url, is_media_hint=is_video)
+        self.show_add_dialog(initial_url=url, is_media_hint=is_video, headers=headers)
 
     def _handle_clipboard_url(self, url: str, is_media: bool):
         self.showNormal()
@@ -449,8 +449,8 @@ class MainWindow(QMainWindow):
                 )
         self._load_downloads_table()
 
-    def show_add_dialog(self, initial_url: str = "", is_media_hint: bool = False):
-        dialog = AddDownloadDialog(self, initial_url=initial_url, is_media_hint=is_media_hint)
+    def show_add_dialog(self, initial_url: str = "", is_media_hint: bool = False, headers: dict = None):
+        dialog = AddDownloadDialog(self, initial_url=initial_url, is_media_hint=is_media_hint, headers=headers)
         if dialog.exec():
             task_id = manager.create_download(
                 url=dialog.confirmed_url,
@@ -459,6 +459,7 @@ class MainWindow(QMainWindow):
                 is_video=dialog.is_video,
                 video_format=dialog.confirmed_format_id,
                 segments_count=dialog.confirmed_segments,
+                headers=getattr(dialog, "confirmed_headers", None),
                 auto_start=dialog.confirmed_auto_start
             )
             self._load_downloads_table()

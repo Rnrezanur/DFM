@@ -60,6 +60,14 @@ class DownloadManager:
         save_path = os.path.join(save_dir, filename)
         category = "Video" if is_video else get_category_for_filename(filename)
 
+        headers_str = "{}"
+        if headers:
+            try:
+                import json
+                headers_str = json.dumps(headers) if isinstance(headers, dict) else str(headers)
+            except Exception:
+                headers_str = "{}"
+
         item_dict = {
             "id": task_id,
             "url": url,
@@ -74,7 +82,7 @@ class DownloadManager:
             "is_video": 1 if is_video else 0,
             "segments_count": segments_count,
             "segments_data": "[]",
-            "headers": "{}" if not headers else str(headers),
+            "headers": headers_str,
             "added_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "completed_at": None,
             "error_message": ""
@@ -119,11 +127,20 @@ class DownloadManager:
                 on_error=lambda t, err: self._on_task_error(t, err)
             )
         else:
+            hdrs = {}
+            if item.get("headers"):
+                try:
+                    import json
+                    hdrs = json.loads(item["headers"]) if isinstance(item["headers"], str) else item["headers"]
+                except Exception:
+                    hdrs = {}
+
             task = DownloadTask(
                 task_id=task_id,
                 url=item["url"],
                 save_path=item["save_path"],
                 segments_count=item["segments_count"] or 8,
+                headers=hdrs,
                 on_progress=lambda t: self._on_task_progress(t),
                 on_status_change=lambda t, s: self._on_task_status_change(t, s),
                 on_complete=lambda t: self._on_task_complete(t),
@@ -193,8 +210,16 @@ class DownloadManager:
                      total_bytes=task.total_bytes, downloaded_bytes=task.downloaded_bytes)
 
     def _on_task_status_change(self, task, status):
-        db.update_download(task.id, status=status)
-        self._notify("status_changed", task.id, status=status)
+        err = getattr(task, "error_message", "")
+        if status == "error":
+            db.update_download(task.id, status=status, error_message=err, speed=0)
+            if task.id in self.active_tasks:
+                del self.active_tasks[task.id]
+            self._notify("error", task.id, error_message=err)
+            self._check_queue()
+        else:
+            db.update_download(task.id, status=status)
+            self._notify("status_changed", task.id, status=status)
 
     def _on_task_complete(self, task):
         db.update_download(

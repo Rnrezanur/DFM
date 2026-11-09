@@ -16,25 +16,37 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   let targetUrl = info.linkUrl || info.srcUrl || (info.menuItemId === "dfm-download-page" ? tab.url : null);
   if (targetUrl) {
-    sendToDFM(targetUrl, tab.title);
+    let cookieString = "";
+    try {
+      if (chrome.cookies) {
+        const cookies = await chrome.cookies.getAll({ url: targetUrl });
+        cookieString = cookies.map(c => `${c.name}=${c.value}`).join("; ");
+      }
+    } catch (e) {
+      console.warn("Could not retrieve cookies for target URL:", e);
+    }
+    sendToDFM(targetUrl, tab.title, cookieString, tab.url);
   }
 });
 
 // Intercept browser downloads if user has bridge running
-chrome.downloads.onCreated.addListener((downloadItem) => {
-  // Can optionally prompt or send directly
+chrome.downloads.onCreated.addListener(async (downloadItem) => {
+  // Can optionally capture browser-triggered downloads
 });
 
-function sendToDFM(url, pageTitle) {
+function sendToDFM(url, pageTitle, cookies = "", referer = "") {
   fetch("http://127.0.0.1:9666/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       url: url,
-      pageTitle: pageTitle
+      pageTitle: pageTitle,
+      cookies: cookies,
+      referer: referer,
+      userAgent: navigator.userAgent
     })
   }).then(resp => {
     if (resp.ok) {
