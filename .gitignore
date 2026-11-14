@@ -34,3 +34,8 @@ $RECYCLE.BIN/
 test_output/
 *.part*
 *.dfm_meta
+
+# Rust build artifacts
+target/
+dfm_core/target/
+core/dfm-engine.exe

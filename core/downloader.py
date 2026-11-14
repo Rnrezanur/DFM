@@ -5,10 +5,12 @@ and per-segment live status tracking just like IDM.
 """
 
 import os
+import sys
 import time
 import json
 import logging
 import threading
+import subprocess
 import requests
 from typing import List, Dict, Optional, Callable, Union
 from urllib.parse import urlparse
@@ -17,6 +19,21 @@ logger = logging.getLogger("DFM.Downloader")
 
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 DFM/2.0"
 CHUNK_SIZE = 64 * 1024  # 64 KB optimized stream chunk (prevents I/O blocking & thread stalls)
+
+def get_rust_engine_binary() -> Optional[str]:
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "dfm-engine.exe"),
+        os.path.join(os.path.dirname(sys.executable), "dfm-engine.exe"),
+        os.path.join(os.path.dirname(__file__), "..", "dfm-engine.exe"),
+        os.path.join(os.path.dirname(__file__), "..", "dfm_core", "target", "release", "dfm-engine.exe"),
+        os.path.join(os.path.dirname(__file__), "..", "bin", "dfm-engine.exe"),
+        os.path.join(os.path.dirname(__file__), "..", "dist", "DFM", "dfm-engine.exe"),
+    ]
+    for p in candidates:
+        abs_p = os.path.abspath(p)
+        if os.path.exists(abs_p) and os.path.isfile(abs_p):
+            return abs_p
+    return None
 
 class DownloadSegment:
     def __init__(self, index: int, start: int, end: int, downloaded: int = 0):
@@ -89,6 +106,8 @@ class DownloadTask:
         self.supports_range = False
         self.error_message = ""
         self.segments: List[DownloadSegment] = []
+        self.is_cloudflare = False
+        self._rust_proc: Optional[subprocess.Popen] = None
 
         self._pause_event = threading.Event()
         self._stop_event = threading.Event()
@@ -232,14 +251,8 @@ class DownloadTask:
         except Exception as e:
             logger.error(f"Failed to save metadata {meta_path}: {e}")
 
-    def start(self):
-        """Start or resume the download threads."""
-        self._stop_event.clear()
-        self._pause_event.clear()
-
-        # Ensure target folder exists
-        os.makedirs(os.path.dirname(os.path.abspath(self.save_path)), exist_ok=True)
-
+    def _start_internal_engine(self):
+        """Start standard internal Python multi-threaded downloader."""
         if not self.segments:
             if not self.probe():
                 self.set_status("error", self.error_message or "Connection failed")
@@ -258,9 +271,104 @@ class DownloadTask:
         self._monitor_thread = threading.Thread(target=self._monitor_worker, daemon=True)
         self._monitor_thread.start()
 
+    def _run_rust_engine(self, rust_bin: str):
+        """Execute high-speed, ultra-low-RAM Rust download engine."""
+        cmd = [
+            rust_bin,
+            "--url", self.url,
+            "--out", self.save_path,
+            "--threads", str(self.num_segments),
+            "--json"
+        ]
+        for k, v in self.headers.items():
+            cmd.extend(["--header", f"{k}: {v}"])
+
+        try:
+            startupinfo = None
+            if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0
+
+            self._rust_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                startupinfo=startupinfo
+            )
+
+            for line in self._rust_proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                    ev_type = ev.get("type")
+                    if ev_type == "init":
+                        if ev.get("total", 0) > 0:
+                            self.total_bytes = ev["total"]
+                            self.supports_range = True
+                    elif ev_type == "progress":
+                        self.downloaded_bytes = ev.get("downloaded", self.downloaded_bytes)
+                        if ev.get("total", 0) > 0:
+                            self.total_bytes = ev["total"]
+                        self.speed = float(ev.get("speed", 0.0))
+                        self.eta = int(ev.get("eta_secs", 0))
+                        if self.on_progress:
+                            self.on_progress(self)
+                    elif ev_type == "completed":
+                        self.downloaded_bytes = self.total_bytes
+                        self.speed = float(ev.get("speed", 0.0))
+                        self.eta = 0
+                        self.set_status("completed")
+                        if self.on_complete:
+                            self.on_complete(self)
+                        return
+                    elif ev_type == "error":
+                        err_msg = ev.get("message") or "Rust engine error"
+                        logger.warning(f"Rust engine error: {err_msg}. Falling back to internal engine.")
+                        break
+                except json.JSONDecodeError:
+                    continue
+
+            ret = self._rust_proc.wait()
+            if ret != 0 and self.status == "downloading":
+                logger.info("Falling back to Python multi-threaded engine.")
+                self._start_internal_engine()
+
+        except Exception as e:
+            logger.error(f"Error executing rust engine: {e}")
+            if self.status == "downloading":
+                self._start_internal_engine()
+
+    def start(self):
+        """Start or resume the download threads."""
+        self._stop_event.clear()
+        self._pause_event.clear()
+
+        # Ensure target folder exists
+        os.makedirs(os.path.dirname(os.path.abspath(self.save_path)), exist_ok=True)
+
+        rust_bin = get_rust_engine_binary()
+        if rust_bin and not self.is_cloudflare:
+            self.set_status("downloading")
+            self._worker_threads = [threading.Thread(target=self._run_rust_engine, args=(rust_bin,), daemon=True)]
+            self._worker_threads[0].start()
+            return
+
+        self._start_internal_engine()
+
     def pause(self):
         """Pause all worker threads gracefully."""
         self._pause_event.set()
+        if self._rust_proc:
+            try:
+                self._rust_proc.terminate()
+            except Exception:
+                pass
+            self._rust_proc = None
         self.set_status("paused")
         self.save_metadata()
 
@@ -273,6 +381,12 @@ class DownloadTask:
         """Stop download and clean up part files."""
         self._stop_event.set()
         self._pause_event.set()
+        if self._rust_proc:
+            try:
+                self._rust_proc.terminate()
+            except Exception:
+                pass
+            self._rust_proc = None
         self.set_status("canceled")
         # Cleanup
         for seg in self.segments:

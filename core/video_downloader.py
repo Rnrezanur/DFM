@@ -30,6 +30,7 @@ class VideoDownloadTask:
         url: str,
         save_path: str,
         format_id: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
         on_progress: Optional[Callable] = None,
         on_status_change: Optional[Callable] = None,
         on_complete: Optional[Callable] = None,
@@ -39,6 +40,7 @@ class VideoDownloadTask:
         self.url = url
         self.save_path = save_path
         self.format_id = format_id or "bestvideo+bestaudio/best"
+        self.headers = headers or {}
         self.on_progress = on_progress
         self.on_status_change = on_status_change
         self.on_complete = on_complete
@@ -54,7 +56,7 @@ class VideoDownloadTask:
         self._worker_thread: Optional[threading.Thread] = None
 
     @classmethod
-    def probe_media(cls, url: str) -> Optional[VideoInfo]:
+    def probe_media(cls, url: str, headers: Optional[Dict[str, str]] = None) -> Optional[VideoInfo]:
         """Probe media link without downloading, returning available formats."""
         yt_dlp = _get_ydl()
         ydl_opts = {
@@ -63,6 +65,8 @@ class VideoDownloadTask:
             "skip_download": True,
             "noplaylist": True,
         }
+        if headers:
+            ydl_opts["http_headers"] = headers
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -176,6 +180,8 @@ class VideoDownloadTask:
             "buffersize": 1024 * 1024,
             "http_chunk_size": 10485760,
         }
+        if self.headers:
+            ydl_opts["http_headers"] = self.headers
 
         if is_audio_only:
             ydl_opts["postprocessors"] = [{

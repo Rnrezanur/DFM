@@ -1,0 +1,9 @@
+[package]
+name = "dfm-engine"
+version = "2.0.0"
+edition = "2021"
+authors = ["Rezanur <rezanurbinshamim@gmail.com>"]
+description = "DFM Ultra-Fast Multi-Threaded Download Acceleration Engine in Rust"
+
+[dependencies]
+minreq = { version = "2.14", features = ["https-rustls"] }

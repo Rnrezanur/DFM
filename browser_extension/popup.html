@@ -2,63 +2,216 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>DFM Integration</title>
+  <title>DFM Video Grabber</title>
   <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      width: 260px;
-      margin: 0;
-      padding: 16px;
-      background: #18191c;
-      color: #e3e5e8;
+      width: 320px;
+      background: #0f131f;
+      color: #e2e8f0;
+      padding: 14px;
+      user-select: none;
     }
-    h3 {
-      margin: 0 0 8px 0;
-      font-size: 16px;
-      color: #5865f2;
+    .header {
       display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .brand-bolt {
+      color: #3b82f6;
+      font-size: 16px;
     }
     .status-badge {
-      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
       padding: 3px 8px;
       border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
     .status-online {
-      background: #23a55a22;
-      color: #23a55a;
-      border: 1px solid #23a55a;
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.4);
     }
     .status-offline {
-      background: #f23f4322;
-      color: #f23f43;
-      border: 1px solid #f23f43;
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
     }
-    button {
-      width: 100%;
-      background: #5865f2;
-      color: white;
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #64748b;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .stream-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 250px;
+      overflow-y: auto;
+      margin-bottom: 12px;
+    }
+    .stream-card {
+      background: #182032;
+      border: 1px solid #23304b;
+      border-radius: 8px;
+      padding: 9px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.2s ease;
+    }
+    .stream-card:hover {
+      border-color: #3b82f6;
+      background: #1d2840;
+    }
+    .stream-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+      max-width: 190px;
+    }
+    .stream-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .stream-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 4px;
+      background: rgba(59, 130, 246, 0.25);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+    .stream-sub {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    .dl-btn {
+      background: #2563eb;
+      color: #ffffff;
       border: none;
       border-radius: 6px;
-      padding: 8px 12px;
+      padding: 6px 10px;
+      font-size: 11px;
       font-weight: 600;
       cursor: pointer;
-      margin-top: 6px;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
     }
-    button:hover {
-      background: #4752c4;
+    .dl-btn:hover {
+      background: #1d4ed8;
+      box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+    }
+    .empty-state {
+      padding: 18px 12px;
+      text-align: center;
+      color: #94a3b8;
+      background: #141b2b;
+      border: 1px dashed #283553;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .page-btn {
+      width: 100%;
+      background: #1e293b;
+      color: #f1f5f9;
+      border: 1px solid #334155;
+      border-radius: 7px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .page-btn:hover {
+      background: #334155;
+      border-color: #475569;
+    }
+    .footer-note {
+      margin-top: 10px;
+      font-size: 10px;
+      color: #64748b;
+      text-align: center;
     }
   </style>
 </head>
 <body>
-  <h3>⚡ DFM Downloader</h3>
-  <div id="status" class="status-badge status-offline">Checking status...</div>
-  <p style="font-size: 13px; color: #949ba4; margin-top: 0;">Send current tab URL or right click any link to download with high-speed multi-threading.</p>
-  <button id="sendCurrent">Download This Page/Media</button>
+  <div class="header">
+    <div class="brand">
+      <span class="brand-bolt">⚡</span>
+      <span>DFM Video Grabber</span>
+    </div>
+    <div id="statusBadge" class="status-badge status-offline">
+      <span class="status-dot"></span>
+      <span id="statusText">DFM Offline</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>Detected Media Streams</span>
+    <span id="streamCount" style="color:#38bdf8;">0 found</span>
+  </div>
+
+  <div id="streamList" class="stream-list">
+    <div class="empty-state">
+      Play any video (Pornhub, YouTube, Twitter, Twitch, etc.) to detect streaming links.
+    </div>
+  </div>
+
+  <button id="downloadPageBtn" class="page-btn">
+    <span>⚡ Download Current Page / Video</span>
+  </button>
+
+  <div class="footer-note">
+    Supports HLS (.m3u8), DASH (.mpd), MP4, WebM & Blob Playback
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

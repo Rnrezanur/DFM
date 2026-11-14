@@ -7,17 +7,25 @@
 
 ## 🚀 Key Features
 
-1. **Multi-Threaded Segmented Download Engine**:
+1. **Ultra-Fast Rust Core Acceleration Engine (`dfm-core`)**:
+   - 100% native multi-threaded segmented download core written in **Rust** (`dfm-engine.exe`).
+   - Ultra-lightweight footprint (~3–5 MB RAM usage, sub-millisecond startup).
+   - Pre-allocates destination files on disk to prevent filesystem fragmentation and drive thrashing.
+   - Zero-copy stream buffer pooling with Exponential Moving Average (EMA) rate smoothing to eliminate speed drops.
+   - Emits structured JSON events for seamless desktop GUI integration with automatic fallback to the internal Python engine.
+
+2. **Universal Streaming Video & Media Grabber (Any Website)**:
+   - Full **Browser Stream Sniffer** (`webRequest` + DOM inspection) for Chrome, Edge, and Brave.
+   - Detects all streaming protocols: **HLS (`.m3u8`) master playlists, DASH (`.mpd`), direct MP4, WebM, and blob-based media**.
+   - **IDM-Style Floating Video Bar**: Automatically hovers on any `<video>` element on any website (including adult sites like Pornhub, XVideos, streaming services, YouTube, Twitter/X, TikTok, Reddit, Vimeo, Twitch).
+   - One-click dropdown quality selector (`1080p Full HD`, `720p HD`, `480p`, `Adaptive HLS`, `Direct MP4`) with estimated file sizes.
+   - Passes full session headers, Referer, and Cookies directly to DFM to bypass CDN hotlink protections and 403 Forbidden barriers.
+
+3. **Multi-Threaded Segmented Download Engine**:
    - Dynamic file chunking with up to **32 concurrent connections** per file.
    - Bypasses per-connection server throttling to maximize your internet bandwidth.
    - **Iconic Segment Visualizer**: Real-time visualization of individual connection threads racing to download chunks, just like IDM.
    - Full **Pause & Resume** support with crash recovery and zero data loss.
-
-2. **Universal Streaming Video & Media Grabber**:
-   - Powered by `yt-dlp` and `FFmpeg` to download video and audio from 1000+ streaming sites:
-     - **YouTube, Facebook, Twitter/X, TikTok, Instagram, Vimeo, Reddit, Twitch, Dailymotion, etc.**
-   - Multi-quality selector: 4K, 1440p, 1080p Full HD, 720p HD, and Audio-Only MP3 conversion.
-   - Direct support for HLS (`.m3u8`) and DASH (`.mpd`) video streams.
 
 3. **Smart Clipboard Sniffer**:
    - Automatically monitors your Windows clipboard for copied links.

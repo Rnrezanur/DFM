@@ -34,15 +34,17 @@ class ProbeThread(QThread):
 
     def run(self):
         try:
-            # First check if it looks like a streaming video site
+            # Check if it looks like a streaming video site or stream manifest
             video_info = None
-            is_video_domain = any(dom in self.url.lower() for dom in [
+            is_stream_manifest = any(ext in self.url.lower() for ext in [".m3u8", ".mpd"])
+            is_video_domain = is_stream_manifest or any(dom in self.url.lower() for dom in [
                 "youtube.com", "youtu.be", "facebook.com", "fb.watch", "tiktok.com",
-                "x.com", "twitter.com", "vimeo.com", "twitch.tv", "dailymotion.com", "instagram.com"
+                "x.com", "twitter.com", "vimeo.com", "twitch.tv", "dailymotion.com", "instagram.com",
+                "pornhub.com", "phncdn.com", "xvideos.com", "xnxx.com", "spankbang.com", "redtube.com", "youporn.com", "eporner.com"
             ])
 
             if is_video_domain:
-                video_info = VideoDownloadTask.probe_media(self.url)
+                video_info = VideoDownloadTask.probe_media(self.url, headers=self.custom_headers)
 
             if video_info:
                 self.info_ready.emit({

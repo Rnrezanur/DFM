@@ -1,22 +1,51 @@
 {
   "manifest_version": 3,
-  "name": "DFM Download Integration",
-  "version": "1.1.0",
-  "description": "Seamlessly send downloads and streaming media from Chrome/Edge to DFM (Download Fast Manager) with cookie & session preservation.",
+  "name": "DFM Video Grabber & Download Fast Manager",
+  "version": "2.0.0",
+  "description": "Ultra-fast media stream sniffer and video grabber. Intercepts HLS (m3u8), DASH (mpd), MP4, and streaming video from any website with an IDM-style floating player button.",
   "permissions": [
-    "contextMenus",
-    "downloads",
-    "cookies"
+    "webRequest",
+    "storage",
+    "cookies",
+    "tabs",
+    "contextMenus"
   ],
   "host_permissions": [
-    "http://127.0.0.1:9666/*",
-    "<all_urls>"
+    "<all_urls>",
+    "http://127.0.0.1:9666/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sniffer_hook.js", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "DFM Downloader"
+    "default_title": "DFM Video Grabber",
+    "default_icon": {
+      "16": "icons/dfm_16.png",
+      "32": "icons/dfm_32.png",
+      "48": "icons/dfm_48.png",
+      "128": "icons/dfm_128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/dfm_16.png",
+    "32": "icons/dfm_32.png",
+    "48": "icons/dfm_48.png",
+    "128": "icons/dfm_128.png"
   }
 }

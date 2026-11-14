@@ -115,26 +115,27 @@ class DownloadManager:
         speed_limit_kbps = int(db.get_setting("speed_limit_kbps", "0"))
         limit_bytes = (speed_limit_kbps * 1024) if speed_limit_enabled and speed_limit_kbps > 0 else None
 
+        hdrs = {}
+        if item.get("headers"):
+            try:
+                import json
+                hdrs = json.loads(item["headers"]) if isinstance(item["headers"], str) else item["headers"]
+            except Exception:
+                hdrs = {}
+
         if item["is_video"] == 1:
             task = VideoDownloadTask(
                 task_id=task_id,
                 url=item["url"],
                 save_path=item["save_path"],
                 format_id=video_format,
+                headers=hdrs,
                 on_progress=lambda t: self._on_task_progress(t),
                 on_status_change=lambda t, s: self._on_task_status_change(t, s),
                 on_complete=lambda t: self._on_task_complete(t),
                 on_error=lambda t, err: self._on_task_error(t, err)
             )
         else:
-            hdrs = {}
-            if item.get("headers"):
-                try:
-                    import json
-                    hdrs = json.loads(item["headers"]) if isinstance(item["headers"], str) else item["headers"]
-                except Exception:
-                    hdrs = {}
-
             task = DownloadTask(
                 task_id=task_id,
                 url=item["url"],
