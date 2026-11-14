@@ -52,7 +52,7 @@ class DownloadManager:
         save_dir: str,
         is_video: bool = False,
         video_format: Optional[str] = None,
-        segments_count: int = 8,
+        segments_count: int = 16,
         headers: Optional[Dict] = None,
         auto_start: bool = True
     ) -> str:
@@ -140,7 +140,7 @@ class DownloadManager:
                 task_id=task_id,
                 url=item["url"],
                 save_path=item["save_path"],
-                segments_count=item["segments_count"] or 8,
+                segments_count=item["segments_count"] or 16,
                 headers=hdrs,
                 on_progress=lambda t: self._on_task_progress(t),
                 on_status_change=lambda t, s: self._on_task_status_change(t, s),

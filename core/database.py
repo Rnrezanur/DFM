@@ -67,7 +67,7 @@ class Database:
         defaults = {
             "default_download_dir": default_dir,
             "max_concurrent_downloads": "5",
-            "default_segments": "8",
+            "default_segments": "16",
             "speed_limit_enabled": "0",
             "speed_limit_kbps": "0",
             "clipboard_monitor": "1",

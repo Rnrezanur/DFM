@@ -1,14 +1,17 @@
-// DFM Engine - High-Performance Multi-Threaded Download Acceleration Core in Rust
+// DFM Engine - Ultra-Fast Multi-Threaded Download Core with Dynamic Work Stealing
 // Authors: Rezanur <rezanurbinshamim@gmail.com>
 
 use std::collections::HashMap;
 use std::env;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+const READ_BUFFER_SIZE: usize = 256 * 1024; // 256 KB high-throughput buffer
+const MIN_STEAL_SIZE: u64 = 4 * 1024 * 1024; // 4 MB minimum size required to steal work
 
 struct DownloadConfig {
     url: String,
@@ -16,6 +19,15 @@ struct DownloadConfig {
     threads: usize,
     headers: HashMap<String, String>,
     json_mode: bool,
+}
+
+#[derive(Clone)]
+struct SharedSegment {
+    _id: usize,
+    start: u64,
+    end: Arc<AtomicU64>,
+    current: Arc<AtomicU64>,
+    completed: Arc<AtomicBool>,
 }
 
 fn emit_event(
@@ -74,7 +86,7 @@ fn parse_args() -> Result<DownloadConfig, String> {
     let args: Vec<String> = env::args().collect();
     let mut url = String::new();
     let mut out_path = String::new();
-    let mut threads = 8usize;
+    let mut threads = 16usize; // Default 16 aggressive threads for maximum speed
     let mut headers = HashMap::new();
     let mut json_mode = false;
 
@@ -137,12 +149,85 @@ fn parse_args() -> Result<DownloadConfig, String> {
     })
 }
 
+// Download a specific range [range_start .. range_end] into the file
+fn download_range(
+    url: &str,
+    headers: &HashMap<String, String>,
+    file: &mut File,
+    range_start: u64,
+    range_end_atomic: &Arc<AtomicU64>,
+    current_atomic: &Arc<AtomicU64>,
+    global_counter: &Arc<AtomicU64>,
+    err_flag: &Arc<AtomicBool>,
+) -> bool {
+    let initial_end = range_end_atomic.load(Ordering::SeqCst);
+    if range_start > initial_end {
+        return true;
+    }
+
+    let mut req = minreq::get(url).with_timeout(30);
+    for (k, v) in headers {
+        req = req.with_header(k, v);
+    }
+    if !headers.contains_key("User-Agent") {
+        req = req.with_header("User-Agent", "DFM/2.0 (Windows NT 10.0; Win64; x64) DownloadFastManager");
+    }
+    req = req.with_header("Range", format!("bytes={}-{}", range_start, initial_end));
+
+    let mut resp = match req.send_lazy() {
+        Ok(r) => r,
+        Err(_) => {
+            err_flag.store(true, Ordering::Relaxed);
+            return false;
+        }
+    };
+
+    if file.seek(SeekFrom::Start(range_start)).is_err() {
+        err_flag.store(true, Ordering::Relaxed);
+        return false;
+    }
+
+    let mut pos = range_start;
+    let mut buf = vec![0u8; READ_BUFFER_SIZE];
+
+    loop {
+        let current_target_end = range_end_atomic.load(Ordering::SeqCst);
+        if pos > current_target_end {
+            break; // Finished this portion or was stolen
+        }
+
+        let max_to_read = ((current_target_end - pos + 1) as usize).min(buf.len());
+        if max_to_read == 0 {
+            break;
+        }
+
+        match resp.read(&mut buf[..max_to_read]) {
+            Ok(0) => break,
+            Ok(n) => {
+                if file.write_all(&buf[..n]).is_err() {
+                    err_flag.store(true, Ordering::Relaxed);
+                    return false;
+                }
+                pos += n as u64;
+                current_atomic.store(pos, Ordering::SeqCst);
+                global_counter.fetch_add(n as u64, Ordering::Relaxed);
+            }
+            Err(_) => {
+                err_flag.store(true, Ordering::Relaxed);
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
 fn main() {
     let cfg = match parse_args() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{}", e);
-            eprintln!("Usage: dfm-engine --url <URL> --out <FILE> [--threads 8] [--header \"K: V\"] [--json]");
+            eprintln!("Usage: dfm-engine --url <URL> --out <FILE> [--threads 16] [--header \"K: V\"] [--json]");
             std::process::exit(1);
         }
     };
@@ -198,8 +283,8 @@ fn main() {
 
     drop(probe_resp);
 
-    // If file is tiny (< 3MB) or ranges unsupported, 1 connection is sufficient
-    let thread_count = if !supports_range || total_size < 3 * 1024 * 1024 {
+    // Thread count selection
+    let thread_count = if !supports_range || total_size < 2 * 1024 * 1024 {
         1
     } else {
         cfg.threads
@@ -230,7 +315,7 @@ fn main() {
     let is_done = Arc::new(AtomicBool::new(false));
     let has_error = Arc::new(AtomicBool::new(false));
 
-    // 3. Monitor thread with EMA smoothing
+    // 3. Monitor thread with Exponential Moving Average (EMA) rate smoothing
     let monitor_downloaded = Arc::clone(&downloaded_atomic);
     let monitor_done = Arc::clone(&is_done);
     let monitor_error = Arc::clone(&has_error);
@@ -243,7 +328,7 @@ fn main() {
         let alpha = 0.25f64;
 
         while !monitor_done.load(Ordering::Relaxed) && !monitor_error.load(Ordering::Relaxed) {
-            thread::sleep(Duration::from_millis(250));
+            thread::sleep(Duration::from_millis(200));
             let current = monitor_downloaded.load(Ordering::Relaxed);
             let now = Instant::now();
             let elapsed = now.duration_since(last_time).as_secs_f64();
@@ -310,7 +395,7 @@ fn main() {
 
             match req.send_lazy() {
                 Ok(mut reader) => {
-                    let mut buf = [0u8; 65536];
+                    let mut buf = vec![0u8; READ_BUFFER_SIZE];
                     loop {
                         match reader.read(&mut buf) {
                             Ok(0) => break,
@@ -335,8 +420,9 @@ fn main() {
         });
         handles.push(h);
     } else {
-        // Multi-connection segmented downloading
+        // Multi-connection segmented downloading WITH DYNAMIC WORK STEALING
         let part_size = total_size / (thread_count as u64);
+        let mut segments: Vec<SharedSegment> = Vec::with_capacity(thread_count);
 
         for seg_idx in 0..thread_count {
             let start = seg_idx as u64 * part_size;
@@ -346,49 +432,134 @@ fn main() {
                 (seg_idx as u64 + 1) * part_size - 1
             };
 
+            segments.push(SharedSegment {
+                _id: seg_idx,
+                start,
+                end: Arc::new(AtomicU64::new(end)),
+                current: Arc::new(AtomicU64::new(start)),
+                completed: Arc::new(AtomicBool::new(false)),
+            });
+        }
+
+        let all_segments = Arc::new(Mutex::new(segments));
+
+        for seg_idx in 0..thread_count {
             let mut file_clone = file.try_clone().expect("Failed to clone file handle");
             let url = cfg.url.clone();
             let headers = cfg.headers.clone();
             let counter = Arc::clone(&downloaded_atomic);
             let err_flag = Arc::clone(&has_error);
+            let pool = Arc::clone(&all_segments);
 
             let h = thread::spawn(move || {
-                let mut req = minreq::get(&url).with_timeout(30);
-                for (k, v) in &headers {
-                    req = req.with_header(k, v);
-                }
-                if !headers.contains_key("User-Agent") {
-                    req = req.with_header("User-Agent", "DFM/2.0 (Windows NT 10.0; Win64; x64) DownloadFastManager");
-                }
-                req = req.with_header("Range", format!("bytes={}-{}", start, end));
+                // 1. Download initial assigned segment
+                let (initial_start, initial_end, initial_curr, initial_done) = {
+                    let segs = pool.lock().unwrap();
+                    let s = &segs[seg_idx];
+                    (s.start, Arc::clone(&s.end), Arc::clone(&s.current), Arc::clone(&s.completed))
+                };
 
-                match req.send_lazy() {
-                    Ok(mut reader) => {
-                        if file_clone.seek(SeekFrom::Start(start)).is_err() {
-                            err_flag.store(true, Ordering::Relaxed);
-                            return;
-                        }
+                let success = download_range(
+                    &url,
+                    &headers,
+                    &mut file_clone,
+                    initial_start,
+                    &initial_end,
+                    &initial_curr,
+                    &counter,
+                    &err_flag,
+                );
 
-                        let mut buf = [0u8; 65536];
-                        loop {
-                            match reader.read(&mut buf) {
-                                Ok(0) => break,
-                                Ok(n) => {
-                                    if file_clone.write_all(&buf[..n]).is_err() {
-                                        err_flag.store(true, Ordering::Relaxed);
-                                        break;
+                initial_done.store(true, Ordering::SeqCst);
+
+                if !success || err_flag.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // 2. WORK STEALING LOOP: Keep thread alive and steal from slowest/largest remaining segment
+                loop {
+                    if err_flag.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    // Find segment with largest remaining bytes
+                    let steal_task = {
+                        let mut segs = pool.lock().unwrap();
+                        let mut best_idx = None;
+                        let mut max_remaining = 0u64;
+
+                        for (i, s) in segs.iter().enumerate() {
+                            if !s.completed.load(Ordering::SeqCst) {
+                                let cur = s.current.load(Ordering::SeqCst);
+                                let end = s.end.load(Ordering::SeqCst);
+                                if end > cur {
+                                    let rem = end - cur;
+                                    if rem > max_remaining && rem >= MIN_STEAL_SIZE {
+                                        max_remaining = rem;
+                                        best_idx = Some(i);
                                     }
-                                    counter.fetch_add(n as u64, Ordering::Relaxed);
-                                }
-                                Err(_) => {
-                                    err_flag.store(true, Ordering::Relaxed);
-                                    break;
                                 }
                             }
                         }
-                    }
-                    Err(_) => {
-                        err_flag.store(true, Ordering::Relaxed);
+
+                        if let Some(target_idx) = best_idx {
+                            let target = &mut segs[target_idx];
+                            let cur = target.current.load(Ordering::SeqCst);
+                            let end = target.end.load(Ordering::SeqCst);
+                            let rem = end.saturating_sub(cur);
+
+                            if rem >= MIN_STEAL_SIZE {
+                                let mid = cur + rem / 2;
+                                let stolen_start = mid + 1;
+                                let stolen_end = end;
+
+                                // Truncate original segment to mid
+                                target.end.store(mid, Ordering::SeqCst);
+
+                                // Add new stolen segment to pool
+                                let new_id = segs.len();
+                                let stolen_seg = SharedSegment {
+                                    _id: new_id,
+                                    start: stolen_start,
+                                    end: Arc::new(AtomicU64::new(stolen_end)),
+                                    current: Arc::new(AtomicU64::new(stolen_start)),
+                                    completed: Arc::new(AtomicBool::new(false)),
+                                };
+                                let task_end = Arc::clone(&stolen_seg.end);
+                                let task_curr = Arc::clone(&stolen_seg.current);
+                                let task_done = Arc::clone(&stolen_seg.completed);
+                                segs.push(stolen_seg);
+
+                                Some((stolen_start, task_end, task_curr, task_done))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    };
+
+                    match steal_task {
+                        Some((stolen_start, stolen_end_atomic, stolen_curr_atomic, stolen_done_atomic)) => {
+                            let ok = download_range(
+                                &url,
+                                &headers,
+                                &mut file_clone,
+                                stolen_start,
+                                &stolen_end_atomic,
+                                &stolen_curr_atomic,
+                                &counter,
+                                &err_flag,
+                            );
+                            stolen_done_atomic.store(true, Ordering::SeqCst);
+                            if !ok {
+                                break;
+                            }
+                        }
+                        None => {
+                            // No segments left to steal; thread can cleanly exit
+                            break;
+                        }
                     }
                 }
             });

@@ -176,9 +176,12 @@ class VideoDownloadTask:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
-            "concurrent_fragment_downloads": 8,
-            "buffersize": 1024 * 1024,
+            "concurrent_fragment_downloads": 16,
+            "buffersize": 16 * 1024 * 1024,
             "http_chunk_size": 10485760,
+            "retries": 10,
+            "fragment_retries": 10,
+            "skip_unavailable_fragments": True,
         }
         if self.headers:
             ydl_opts["http_headers"] = self.headers
