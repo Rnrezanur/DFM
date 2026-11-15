@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DFM (Download Fast Manager) - Ubuntu / Debian Installation Script
+# DFM (Download Fast Manager) - Ubuntu / Debian Installation Script (Pure Rust)
 # ==============================================================================
 
 set -e
@@ -11,45 +11,27 @@ echo "=========================================================="
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 1. Install system dependencies (Python, PyQt6, FFmpeg)
-echo "[1/4] Installing system prerequisites (python3, ffmpeg, pip)..."
+# 1. Install system dependencies (build-essential, pkg-config, libssl-dev)
+echo "[1/4] Installing system prerequisites..."
 if command -v sudo &>/dev/null; then
     sudo apt-get update
-    sudo apt-get install -y python3 python3-pip python3-venv python3-pyqt6 ffmpeg
+    sudo apt-get install -y build-essential pkg-config libssl-dev libgl1-mesa-dev libx11-dev
 else
     apt-get update
-    apt-get install -y python3 python3-pip python3-venv python3-pyqt6 ffmpeg
+    apt-get install -y build-essential pkg-config libssl-dev libgl1-mesa-dev libx11-dev
 fi
 
-# 2. Setup Python environment and dependencies
-echo "[2/4] Installing Python packages (yt-dlp, requests, pyqtdarktheme)..."
-# Create a dedicated virtual environment if pip refuses system-wide install (Ubuntu 23.04+ PEP 668)
-VENV_DIR="$HOME/.dfm/venv"
-if [ ! -d "$VENV_DIR" ]; then
-    python3 -m venv "$VENV_DIR" --system-site-packages
+# 2. Check for Rust/Cargo
+if ! command -v cargo &>/dev/null; then
+    echo "[2/4] Installing Rust toolchain..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
 fi
-"$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install yt-dlp requests pyqtdarktheme
 
-# 3. Setup CLI launcher
-echo "[3/4] Configuring executable launcher..."
-chmod +x "$SCRIPT_DIR/run.sh"
-
-LAUNCHER_SCRIPT="/usr/local/bin/dfm"
-if command -v sudo &>/dev/null; then
-    sudo bash -c "cat << 'EOF' > $LAUNCHER_SCRIPT
-#!/usr/bin/env bash
-exec \"$HOME/.dfm/venv/bin/python\" \"$SCRIPT_DIR/main.py\" \"\$@\"
-EOF"
-    sudo chmod +x "$LAUNCHER_SCRIPT"
-else
-    mkdir -p "$HOME/.local/bin"
-    cat << EOF > "$HOME/.local/bin/dfm"
-#!/usr/bin/env bash
-exec "$HOME/.dfm/venv/bin/python" "$SCRIPT_DIR/main.py" "\$@"
-EOF
-    chmod +x "$HOME/.local/bin/dfm"
-fi
+# 3. Build DFM release binary
+echo "[3/4] Compiling DFM in release mode..."
+cd "$SCRIPT_DIR"
+cargo build --release
 
 # 4. Setup Desktop Application Menu Entry and Icon
 echo "[4/4] Setting up Desktop icon and application shortcut..."
@@ -59,36 +41,26 @@ cp "$SCRIPT_DIR/assets/dfm_icon.png" "$ICON_DIR/dfm.png"
 
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
-
 cat << EOF > "$DESKTOP_DIR/dfm.desktop"
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=DFM Downloader
 GenericName=Internet Download Manager
-Comment=High-Speed Multi-Threaded Download Accelerator and Video Grabber
-Exec=dfm %U
+Comment=High-performance IDM alternative in 100% pure Rust
+Exec=$SCRIPT_DIR/target/release/dfm %U
 Icon=dfm
 Terminal=false
-Categories=Network;FileTransfer;
+Categories=Network;FileTransfer;Utility;
 MimeType=x-scheme-handler/dfm;
 StartupNotify=true
-StartupWMClass=DFM
 EOF
 
 chmod +x "$DESKTOP_DIR/dfm.desktop"
+update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 
-# Refresh desktop database if available
-if command -v update-desktop-database &>/dev/null; then
-    update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
-fi
-
-echo ""
 echo "=========================================================="
-echo "   ✓ DFM has been successfully installed on your Ubuntu!  "
-echo "=========================================================="
-echo "You can now start DFM by:"
-echo "  1. Searching 'DFM Downloader' in Ubuntu Applications (Super / Windows key)"
-echo "  2. Running 'dfm' in your terminal"
-echo "  3. Running './run.sh' from this folder"
+echo "  DFM (Pure Rust) has been successfully installed!"
+echo "  You can start DFM from your application menu or by running:"
+echo "    $SCRIPT_DIR/target/release/dfm"
 echo "=========================================================="
