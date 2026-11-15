@@ -9,6 +9,7 @@ dist/
 installer_output/
 *.spec
 DFM_Setup.exe
+DFM.exe
 
 # Local databases and runtime state
 *.db

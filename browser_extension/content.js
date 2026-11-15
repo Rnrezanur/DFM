@@ -20,7 +20,8 @@
       chrome.runtime.sendMessage({
         action: 'REGISTER_DOM_STREAM',
         url: event.data.url,
-        streamType: event.data.streamType
+        streamType: event.data.streamType,
+        quality: event.data.quality
       }).catch(() => {});
     }
   });

@@ -7,12 +7,11 @@
 
 ## 🚀 Key Features
 
-1. **Ultra-Fast Rust Core Acceleration Engine (`dfm-core`)**:
-   - 100% native multi-threaded segmented download core written in **Rust** (`dfm-engine.exe`).
-   - Ultra-lightweight footprint (~3–5 MB RAM usage, sub-millisecond startup).
-   - Pre-allocates destination files on disk to prevent filesystem fragmentation and drive thrashing.
-   - Zero-copy stream buffer pooling with Exponential Moving Average (EMA) rate smoothing to eliminate speed drops.
-   - Emits structured JSON events for seamless desktop GUI integration with automatic fallback to the internal Python engine.
+1. **100% Pure Native Rust Architecture (Zero Python Dependencies)**:
+   - The entire DFM desktop application is written in **100% pure native Rust** (`eframe`/`egui`).
+   - Ultra-lightweight footprint: memory consumption drops from ~75MB down to **~15–20 MB RAM**, with instant sub-50ms startup.
+   - Self-contained **5.18 MB** native executable with zero external DLL or Python runtime dependencies.
+   - Built-in multi-threaded download engine with **Dynamic Work Stealing**, 256KB read buffers, atomic progress counters, and automatic pre-allocation on disk.
 
 2. **Universal Streaming Video & Media Grabber (Any Website)**:
    - Full **Browser Stream Sniffer** (`webRequest` + DOM inspection) for Chrome, Edge, and Brave.

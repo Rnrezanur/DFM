@@ -129,6 +129,9 @@ function addMediaToTab(tabId, item) {
   if (list.some(m => m.url === item.url)) return;
 
   let details = parseMediaDetails(item.url, item.contentType, item.contentLength);
+  if (item.quality) {
+    details.quality = item.quality;
+  }
 
   let mediaEntry = {
     id: "media_" + Math.random().toString(36).substr(2, 9),
@@ -235,7 +238,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         url: msg.url,
         initiator: sender.tab.url,
         contentType: msg.contentType || "video/mp4",
-        contentLength: msg.contentLength || 0
+        contentLength: msg.contentLength || 0,
+        quality: msg.quality
       });
     }
   }
