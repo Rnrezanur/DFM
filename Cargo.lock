@@ -403,6 +403,7 @@ dependencies = [
  "serde_json",
  "tiny_http",
  "uuid",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

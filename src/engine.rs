@@ -4,14 +4,53 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const READ_BUFFER_SIZE: usize = 256 * 1024; // 256 KB buffer
-const MIN_STEAL_SIZE: u64 = 4 * 1024 * 1024; // 4 MB threshold to steal
+const READ_BUFFER_SIZE: usize = 512 * 1024; // 512 KB direct streaming buffer
+const MIN_STEAL_SIZE: u64 = 2 * 1024 * 1024; // 2 MB aggressive work-steal threshold
+
+#[cfg(windows)]
+fn set_file_sparse(file: &File) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    use windows_sys::Win32::System::Ioctl::{FILE_SET_SPARSE_BUFFER, FSCTL_SET_SPARSE};
+
+    let input = FILE_SET_SPARSE_BUFFER { SetSparse: 1 };
+    let mut returned = 0u32;
+    unsafe {
+        DeviceIoControl(
+            file.as_raw_handle() as _,
+            FSCTL_SET_SPARSE,
+            (&input as *const FILE_SET_SPARSE_BUFFER).cast(),
+            std::mem::size_of::<FILE_SET_SPARSE_BUFFER>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        ) != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn set_file_sparse(_file: &File) -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn write_at_offset(file: &File, buf: &[u8], offset: u64) -> std::io::Result<usize> {
+    use std::os::windows::fs::FileExt;
+    file.seek_write(buf, offset)
+}
+
+#[cfg(not(windows))]
+fn write_at_offset(file: &File, buf: &[u8], offset: u64) -> std::io::Result<usize> {
+    use std::os::unix::fs::FileExt;
+    file.write_at(buf, offset)
+}
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -174,8 +213,11 @@ where
     };
 
     if total_size > 0 {
+        set_file_sparse(&file);
         let _ = file.set_len(total_size);
     }
+
+    let shared_file = Arc::new(file);
 
     let downloaded_atomic = Arc::new(AtomicU64::new(0));
     let has_error = Arc::new(AtomicBool::new(false));
@@ -288,11 +330,7 @@ where
     let mut handles = Vec::new();
 
     for seg_idx in 0..thread_count {
-        let mut file_clone = match file.try_clone() {
-            Ok(f) => f,
-            Err(e) => return Err(format!("File clone error: {}", e)),
-        };
-
+        let file_ref = Arc::clone(&shared_file);
         let url = url.clone();
         let headers = headers.clone();
         let counter = Arc::clone(&downloaded_atomic);
@@ -312,7 +350,7 @@ where
             let ok = download_chunk_stream(
                 &url,
                 &headers,
-                &mut file_clone,
+                &file_ref,
                 init_start,
                 &init_end,
                 &init_curr,
@@ -396,7 +434,7 @@ where
                         let success = download_chunk_stream(
                             &url,
                             &headers,
-                            &mut file_clone,
+                            &file_ref,
                             stolen_start,
                             &s_end,
                             &s_cur,
@@ -435,14 +473,14 @@ where
         return Err("Network transfer interrupted".to_string());
     }
 
-    let _ = file.sync_all();
+    let _ = shared_file.sync_all();
     Ok(())
 }
 
 fn download_chunk_stream(
     url: &str,
     headers: &HashMap<String, String>,
-    file: &mut File,
+    file: &File,
     start: u64,
     end_atomic: &Arc<AtomicU64>,
     cur_atomic: &Arc<AtomicU64>,
@@ -456,27 +494,36 @@ fn download_chunk_stream(
         return true;
     }
 
-    let mut req = minreq::get(url).with_timeout(30);
-    for (k, v) in headers {
-        req = req.with_header(k, v);
-    }
-    if !headers.contains_key("User-Agent") {
-        req = req.with_header("User-Agent", "DFM/2.0 (Windows NT 10.0; Win64; x64) DownloadFastManager");
-    }
-    req = req.with_header("Range", format!("bytes={}-{}", start, initial_end));
+    // Connect with up to 3 retries for resilience against transient packet drops
+    let mut resp = None;
+    for attempt in 0..3 {
+        let mut req = minreq::get(url).with_timeout(30);
+        for (k, v) in headers {
+            req = req.with_header(k, v);
+        }
+        if !headers.contains_key("User-Agent") {
+            req = req.with_header("User-Agent", "DFM/2.0 (Windows NT 10.0; Win64; x64) DownloadFastManager");
+        }
+        req = req.with_header("Range", format!("bytes={}-{}", start, initial_end));
 
-    let mut resp = match req.send_lazy() {
-        Ok(r) => r,
-        Err(_) => {
+        if let Ok(r) = req.send_lazy() {
+            if r.status_code == 200 || r.status_code == 206 {
+                resp = Some(r);
+                break;
+            }
+        }
+        if attempt < 2 {
+            thread::sleep(Duration::from_millis(150 * (attempt + 1)));
+        }
+    }
+
+    let mut resp = match resp {
+        Some(r) => r,
+        None => {
             err_flag.store(true, Ordering::Relaxed);
             return false;
         }
     };
-
-    if file.seek(SeekFrom::Start(start)).is_err() {
-        err_flag.store(true, Ordering::Relaxed);
-        return false;
-    }
 
     let mut pos = start;
     let mut buf = vec![0u8; READ_BUFFER_SIZE];
@@ -499,9 +546,15 @@ fn download_chunk_stream(
         match resp.read(&mut buf[..max_to_read]) {
             Ok(0) => break,
             Ok(n) => {
-                if file.write_all(&buf[..n]).is_err() {
-                    err_flag.store(true, Ordering::Relaxed);
-                    return false;
+                let mut written = 0;
+                while written < n {
+                    match write_at_offset(file, &buf[written..n], pos + written as u64) {
+                        Ok(w) if w > 0 => written += w,
+                        _ => {
+                            err_flag.store(true, Ordering::Relaxed);
+                            return false;
+                        }
+                    }
                 }
                 pos += n as u64;
                 cur_atomic.store(pos, Ordering::SeqCst);
